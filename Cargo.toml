@@ -1,0 +1,21 @@
+[package]
+name = "tachyscan-server"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.97"
+publish = false
+
+[dependencies]
+axum = "0.8"
+base64 = "0.22"
+futures = "0.3"
+hex = "0.4"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "sync", "time"] }
+tower-http = { version = "0.6", features = ["fs", "trace"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+zcash_tachyon = { git = "https://github.com/tachyon-zcash/tachyon", rev = "2dc7010c3e7771c539fd1c03a06bc6be1a7316c7", version = "0.0.0", default-features = false }
+
