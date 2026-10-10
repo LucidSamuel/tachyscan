@@ -1,0 +1,27 @@
+.json-explorer { margin-top: 20px; min-width: 0; border: 1px solid var(--teal-dark); background: #050805; }
+.json-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; padding: 12px; border-bottom: 1px solid var(--teal-dark); }
+.json-toolbar h3 { margin: 0; color: var(--teal); font-size: 10px; text-transform: uppercase; letter-spacing: .12em; }
+.json-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.json-actions button { padding: 6px 8px; border: 1px solid var(--teal-dark); background: transparent; color: var(--teal); font-size: 10px; cursor: pointer; }
+.json-actions button:hover:not(:disabled) { background: rgba(98,197,193,.08); border-color: var(--teal); }
+.json-actions button:disabled { opacity: .6; cursor: wait; }
+.json-actions button:focus-visible, .json-disclosure:focus-visible, .json-tree:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.json-copy-status { min-height: 15px; margin: 6px 12px; font-size: 10px; color: var(--muted); overflow-wrap: anywhere; }
+.json-tree { max-height: 65vh; overflow: auto; padding: 6px 12px 14px; font-size: 11px; line-height: 1.8; color: #a4b8ae; }
+.json-line { display: flex; align-items: flex-start; min-width: 0; border-radius: 2px; }
+.json-line:hover { background: rgba(98,197,193,.035); }
+.json-disclosure, .json-disclosure-spacer { flex: 0 0 22px; width: 22px; min-height: 22px; }
+.json-disclosure { padding: 0; border: 0; background: transparent; color: var(--teal); cursor: pointer; text-align: left; }
+.json-content { min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.json-children { padding-left: 14px; margin-left: 7px; border-left: 1px solid rgba(98,197,193,.15); }
+.json-close { padding-left: 22px; }
+.json-key { color: var(--teal); }
+.json-string { color: #b9c58c; }
+.json-number { color: var(--orange); }
+.json-boolean { color: var(--gold); }
+.json-null, .json-punctuation { color: #82978e; }
+.json-count { margin-left: 10px; color: var(--muted); font-size: 9px; white-space: nowrap; }
+@media (max-width: 680px) {
+  .json-tree { padding: 6px 8px 12px; font-size: 10px; }
+  .json-children { padding-left: 7px; margin-left: 3px; }
+}

@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { Dashboard, ExplorerBlock, Transaction, TransactionSelection } from './types';
 import { isTransactionId, transactionPath, useTransactionRoute } from './transaction-route';
+import { JsonViewer } from './JsonViewer';
 import {
   POOL_TYPES,
   durationUntil,
@@ -539,7 +540,7 @@ function TransactionDetails({ transaction }: { transaction: Transaction }) {
         {transaction.tachyon?.stamp?.type && <Detail label="Stamp" value={transaction.tachyon.stamp.type} />}
         {transaction.tachyon?.stamp?.anchor && <Detail label="Anchor" value={shortHash(transaction.tachyon.stamp.anchor, 10, 7)} title={transaction.tachyon.stamp.anchor} />}
       </div>
-      <details><summary>Raw transaction data</summary><pre>{JSON.stringify(transaction, null, 2)}</pre></details>
+      <JsonViewer key={transaction.txid} value={transaction} />
     </div>
   );
 }

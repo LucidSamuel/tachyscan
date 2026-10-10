@@ -23,6 +23,11 @@ stream's current page. Browser Back/Forward navigates between views. A reverse
 proxy should forward `/tx/` as well as `/api/` to Tachyscan; if serving `dist/`
 directly, configure an `index.html` fallback for `/tx/` paths.
 
+The transaction page includes an interactive JSON explorer. Expand individual
+objects, arrays, and long strings, or use **Fold all** / **Unfold all**. **Copy JSON**
+copies the full, pretty-printed transaction, including folded values; clipboard
+access requires HTTPS (or localhost) and browser permission.
+
 For frontend development, run the API and Vite separately:
 
 ```sh
