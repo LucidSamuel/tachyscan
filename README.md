@@ -16,6 +16,13 @@ ZAKURA_RPC_URL=http://127.0.0.1:8232 \
 
 Open <http://127.0.0.1:4141>. Tachyscan prefers the node's authoritative accumulator and retained Tachygram summary when `gettachyoninfo` is available. It also maintains `.tachyscan/index.json` from canonical verbose blocks for the historical footprint chart and as a fallback for nodes without PR #983. Recent transactions are usable while that backfill runs.
 
+Click a transaction (or its linked Tachygram brick) to open `/tx/<full-64-character-txid>`.
+These URLs can be copied, bookmarked, opened in a new tab, or refreshed: transaction
+details are fetched from Zakura by ID even when the block is no longer on the live
+stream's current page. Browser Back/Forward navigates between views. A reverse
+proxy should forward `/tx/` as well as `/api/` to Tachyscan; if serving `dist/`
+directly, configure an `index.html` fallback for `/tx/` paths.
+
 For frontend development, run the API and Vite separately:
 
 ```sh

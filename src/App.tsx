@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { Dashboard, ExplorerBlock, Transaction, TransactionSelection } from './types';
+import { isTransactionId, transactionPath, useTransactionRoute } from './transaction-route';
 import {
   POOL_TYPES,
   durationUntil,
@@ -38,11 +39,37 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [selection, setSelection] = useState<TransactionSelection | null>(null);
+  const { txid, navigate } = useTransactionRoute();
+  const [transactionError, setTransactionError] = useState<string | null>(null);
   const [animateStream, setAnimateStream] = useState(
     () => localStorage.getItem('tachyscan-stream-motion') !== 'off',
   );
   const [arrivalHeight, setArrivalHeight] = useState<number | null>(null);
   const previousHeight = useRef<number | null>(null);
+
+  useEffect(() => {
+    setSelection(null);
+    setTransactionError(null);
+    if (txid === null) return;
+    if (!isTransactionId(txid)) {
+      setTransactionError('Invalid transaction ID. Use the full 64-character hexadecimal txid.');
+      return;
+    }
+
+    const controller = new AbortController();
+    const loadTransaction = async () => {
+      try {
+        const response = await fetch(`/api/transactions/${txid}`, { signal: controller.signal });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error ?? `Transaction lookup returned ${response.status}`);
+        if (!controller.signal.aborted) setSelection(data);
+      } catch (cause) {
+        if (!controller.signal.aborted) setTransactionError((cause as Error).message);
+      }
+    };
+    void loadTransaction();
+    return () => controller.abort();
+  }, [txid]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -82,7 +109,7 @@ export function App() {
 
   const selectTachygram = (tachygram: string) => {
     const matchingTransaction = transactionForTachygram(dashboard.blocks, tachygram);
-    if (matchingTransaction) setSelection(matchingTransaction);
+    if (matchingTransaction) navigate(matchingTransaction.transaction.txid);
   };
   const toggleStreamAnimation = () => {
     setAnimateStream((enabled) => {
@@ -102,8 +129,10 @@ export function App() {
           dashboard={dashboard}
           onPage={setPage}
           selection={selection}
-          onSelect={setSelection}
-          onBack={() => setSelection(null)}
+          txid={txid}
+          transactionError={transactionError}
+          onSelect={(selected) => navigate(selected.transaction.txid)}
+          onBack={() => navigate(null)}
           animateStream={animateStream}
           arrivalHeight={arrivalHeight}
           onToggleAnimation={toggleStreamAnimation}
@@ -312,6 +341,8 @@ function TransactionPanel({
   dashboard,
   onPage,
   selection,
+  txid,
+  transactionError,
   onSelect,
   onBack,
   animateStream,
@@ -321,6 +352,8 @@ function TransactionPanel({
   dashboard: Dashboard;
   onPage: (page: number) => void;
   selection: TransactionSelection | null;
+  txid: string | null;
+  transactionError: string | null;
   onSelect: (selection: TransactionSelection) => void;
   onBack: () => void;
   animateStream: boolean;
@@ -332,10 +365,10 @@ function TransactionPanel({
     <section class="panel transactions-panel">
       <div class="transactions-head">
         <div>
-          <p class="section-kicker">{selection ? 'TRANSACTION DETAIL' : 'LIVE TRANSACTION STREAM'}</p>
+          <p class="section-kicker">{txid !== null ? 'TRANSACTION DETAIL' : 'LIVE TRANSACTION STREAM'}</p>
           <h2>
-            {selection
-              ? shortHash(selection.transaction.txid, 18, 10)
+            {txid !== null
+              ? shortHash(txid, 18, 10)
               : <>Next block in <span>{durationUntil(dashboard.nextBlockEstimate, now)}</span></>}
           </h2>
         </div>
@@ -353,8 +386,17 @@ function TransactionPanel({
           <span class="network-pill"><i />{dashboard.network}</span>
         </div>
       </div>
-      {selection ? (
-        <SelectedTransactionView selection={selection} onBack={onBack} />
+      {txid !== null ? (
+        selection?.transaction.txid === txid ? (
+          <SelectedTransactionView selection={selection} onBack={onBack} />
+        ) : (
+          <div class="selected-transaction">
+            <button class="back-button" onClick={onBack}>← Back to live stream</button>
+            <p class="no-transactions" role={transactionError ? 'alert' : 'status'}>
+              {transactionError ?? 'Loading transaction…'}
+            </p>
+          </div>
+        )
       ) : (
         <>
           <div class="column-head"><span>TxID</span><span>Value balance</span><span>Type</span></div>
@@ -417,9 +459,17 @@ function TransactionRow({
 }) {
   return (
     <div class="transaction">
-      <button class="transaction-row" onClick={onSelect}>
+      <a
+        class="transaction-row"
+        href={transactionPath(transaction.txid)}
+        onClick={(event) => {
+          if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+          event.preventDefault();
+          onSelect();
+        }}
+      >
         <TransactionSummary transaction={transaction} coinbase={coinbase} marker="+" />
-      </button>
+      </a>
     </div>
   );
 }
@@ -460,7 +510,7 @@ function SelectedTransactionView({
     <div class="selected-transaction">
       <button class="back-button" onClick={onBack}>← Back to live stream</button>
       <div class="block-heading">
-        <span>BLOCK <b>{selection.blockHeight.toLocaleString()}</b></span>
+        <span>{selection.blockHeight === null ? 'UNCONFIRMED' : <>BLOCK <b>{selection.blockHeight.toLocaleString()}</b></>}</span>
         <span>SELECTED TRANSACTION</span>
       </div>
       <div class="transaction open">

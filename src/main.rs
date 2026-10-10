@@ -21,6 +21,8 @@ use tower_http::{services::ServeDir, trace::TraceLayer};
 use tracing::{info, warn};
 use zcash_tachyon::{Anchor, EpochIndex, TachygramSetCommit};
 
+mod transactions;
+
 const DEFAULT_EPOCH_LENGTH: u32 = zcash_tachyon::constants::EPOCH_SIZE;
 const TACHYGRAM_BYTES: u64 = 32;
 const MAX_CHART_EPOCHS: u32 = 6;
@@ -359,6 +361,15 @@ async fn main() {
     let app = Router::new()
         .route("/api/health", get(health))
         .route("/api/dashboard", get(dashboard))
+        .route("/api/transactions/{txid}", get(transactions::transaction))
+        .route_service(
+            "/tx/{txid}",
+            tower_http::services::ServeFile::new("dist/index.html"),
+        )
+        .route_service(
+            "/tx/{txid}/",
+            tower_http::services::ServeFile::new("dist/index.html"),
+        )
         .fallback_service(ServeDir::new("dist").append_index_html_on_directories(true))
         .layer(TraceLayer::new_for_http())
         .with_state(state);

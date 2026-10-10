@@ -24,7 +24,7 @@ export interface Tachygram {
 
 export interface TransactionSelection {
   transaction: Transaction;
-  blockHeight: number;
+  blockHeight: number | null;
   coinbase: boolean;
 }
 
