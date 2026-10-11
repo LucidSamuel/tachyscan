@@ -10,7 +10,7 @@ interface Folding {
   toggle: (path: string, expanded: boolean) => void;
 }
 
-export function JsonViewer({ value }: { value: unknown }) {
+export function JsonViewer({ value, subject = 'Transaction' }: { value: unknown; subject?: string }) {
   const [mode, setMode] = useState<FoldMode>('initial');
   const [overrides, setOverrides] = useState(new Map<string, boolean>());
   const [copying, setCopying] = useState(false);
@@ -44,9 +44,9 @@ export function JsonViewer({ value }: { value: unknown }) {
   };
 
   return (
-    <section class="json-explorer" aria-label="Transaction JSON">
+    <section class="json-explorer" aria-label={`${subject} JSON`}>
       <div class="json-toolbar">
-        <h3>Transaction JSON</h3>
+        <h3>{subject} JSON</h3>
         <div class="json-actions">
           <button type="button" onClick={() => foldAll('folded')}>Fold all</button>
           <button type="button" onClick={() => foldAll('unfolded')}>Unfold all</button>
@@ -56,8 +56,8 @@ export function JsonViewer({ value }: { value: unknown }) {
         </div>
       </div>
       <p class="json-copy-status" role="status" aria-live="polite">{copyStatus}</p>
-      <div class="json-tree" tabIndex={0} aria-label="Transaction JSON fields">
-        <JsonNode value={value} path="" folding={folding} />
+      <div class="json-tree" tabIndex={0} aria-label={`${subject} JSON fields`}>
+        <JsonNode value={value} path="" folding={folding} rootLabel={subject.toLowerCase()} />
       </div>
     </section>
   );
@@ -69,12 +69,14 @@ function JsonNode({
   arrayItem = false,
   path,
   folding,
+  rootLabel = 'transaction',
 }: {
   value: unknown;
   name?: string;
   arrayItem?: boolean;
   path: string;
   folding: Folding;
+  rootLabel?: string;
 }) {
   const container = value !== null && typeof value === 'object';
   const longString = typeof value === 'string' && value.length > LONG_STRING_LENGTH;
@@ -85,7 +87,7 @@ function JsonNode({
   const open = isArray ? '[' : '{';
   const close = isArray ? ']' : '}';
   const entries = container ? Object.entries(value) : [];
-  const label = name ?? 'transaction';
+  const label = name ?? rootLabel;
   const primitiveClass = value === null ? 'null' : typeof value;
   const displayedValue = longString && !expanded
     ? `${value.slice(0, 48)}…${value.slice(-16)}`

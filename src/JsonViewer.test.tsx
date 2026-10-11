@@ -44,6 +44,18 @@ afterEach(async () => {
 });
 
 describe('transaction JSON explorer', () => {
+  it('uses block labels and copies the full block when reused on a block page', async () => {
+    const block = { hash: 'ab'.repeat(32), tx: [transaction] };
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal('navigator', { clipboard: { writeText } });
+    await act(() => render(<JsonViewer value={block} subject="Block" />, host));
+    expect(host.querySelector('[aria-label="Block JSON"]')).not.toBeNull();
+    expect(button('Fold block')).toBeDefined();
+    await click('Fold all');
+    await click('Copy JSON');
+    expect(writeText).toHaveBeenCalledExactlyOnceWith(JSON.stringify(block, null, 2));
+  });
+
   it('shows top-level fields but lazily folds nested containers and long strings', async () => {
     await mount();
     expect(button('Fold transaction').getAttribute('aria-expanded')).toBe('true');

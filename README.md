@@ -23,6 +23,13 @@ stream's current page. Browser Back/Forward navigates between views. A reverse
 proxy should forward `/tx/` as well as `/api/` to Tachyscan; if serving `dist/`
 directly, configure an `index.html` fallback for `/tx/` paths.
 
+Block headers and the tip height link to `/block/<full-64-character-block-hash>`.
+Block pages show metadata, Tachyon transaction/action counts, linked transactions,
+previous/next blocks, and the full collapsible/copyable block JSON. They also accept
+`/block/<height>`; hash URLs identify the specific block even across a reorg.
+Forward `/block/` to Tachyscan too (or use an `index.html` fallback when serving the
+frontend separately). Direct links do not depend on the live stream's current page.
+
 The transaction page includes an interactive JSON explorer. Expand individual
 objects, arrays, and long strings, or use **Fold all** / **Unfold all**. **Copy JSON**
 copies the full, pretty-printed transaction, including folded values; clipboard

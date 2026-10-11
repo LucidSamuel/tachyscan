@@ -1,18 +1,20 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { Dashboard, ExplorerBlock, Transaction, TransactionSelection } from './types';
-import { isTransactionId, transactionPath, useTransactionRoute } from './transaction-route';
+import { isTransactionId, transactionPath } from './transaction-route';
+import { blockPath, useExplorerRoute } from './explorer-route';
+import { ExplorerLink } from './ExplorerLink';
+import { BlockPage } from './BlockPage';
+import { TransactionRow, TransactionSummary } from './TransactionRow';
 import { JsonViewer } from './JsonViewer';
 import {
   POOL_TYPES,
   durationUntil,
   formatBytes,
-  formatZec,
   pruningDate,
   shortHash,
   tachygramGradient,
   transactionForTachygram,
   transactionPools,
-  transactionValueBalance,
 } from './lib';
 
 const PAGE_SIZE = 8;
@@ -40,7 +42,7 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [selection, setSelection] = useState<TransactionSelection | null>(null);
-  const { txid, navigate } = useTransactionRoute();
+  const { txid, blockId, navigate } = useExplorerRoute();
   const [transactionError, setTransactionError] = useState<string | null>(null);
   const [animateStream, setAnimateStream] = useState(
     () => localStorage.getItem('tachyscan-stream-motion') !== 'off',
@@ -110,7 +112,7 @@ export function App() {
 
   const selectTachygram = (tachygram: string) => {
     const matchingTransaction = transactionForTachygram(dashboard.blocks, tachygram);
-    if (matchingTransaction) navigate(matchingTransaction.transaction.txid);
+    if (matchingTransaction) navigate(transactionPath(matchingTransaction.transaction.txid));
   };
   const toggleStreamAnimation = () => {
     setAnimateStream((enabled) => {
@@ -122,22 +124,27 @@ export function App() {
 
   return (
     <main class="shell">
-      <Header dashboard={dashboard} />
+      <Header dashboard={dashboard} onNavigate={navigate} />
       {error && <div class="stale-banner">Live refresh paused · {error}</div>}
       <div class="dashboard-grid">
         <TachyonPanel dashboard={dashboard} onSelectTachygram={selectTachygram} />
-        <TransactionPanel
-          dashboard={dashboard}
-          onPage={setPage}
-          selection={selection}
-          txid={txid}
-          transactionError={transactionError}
-          onSelect={(selected) => navigate(selected.transaction.txid)}
-          onBack={() => navigate(null)}
-          animateStream={animateStream}
-          arrivalHeight={arrivalHeight}
-          onToggleAnimation={toggleStreamAnimation}
-        />
+        {blockId !== null ? (
+          <BlockPage key={blockId} id={blockId} network={dashboard.network} onNavigate={navigate} />
+        ) : (
+          <TransactionPanel
+            dashboard={dashboard}
+            onPage={setPage}
+            selection={selection}
+            txid={txid}
+            transactionError={transactionError}
+            onSelect={(selected) => navigate(transactionPath(selected.transaction.txid))}
+            onBack={() => navigate('/')}
+            onNavigate={navigate}
+            animateStream={animateStream}
+            arrivalHeight={arrivalHeight}
+            onToggleAnimation={toggleStreamAnimation}
+          />
+        )}
       </div>
       <footer>
         <span>Tachyscan</span>
@@ -150,7 +157,7 @@ export function App() {
   );
 }
 
-function Header({ dashboard }: { dashboard: Dashboard }) {
+function Header({ dashboard, onNavigate }: { dashboard: Dashboard; onNavigate: (path: string) => void }) {
   return (
     <header>
       <div>
@@ -158,7 +165,9 @@ function Header({ dashboard }: { dashboard: Dashboard }) {
         <h1>Tachy<span>scan</span><i>✦</i></h1>
       </div>
       <div class="tip-stats">
-        <Stat label="Block" value={dashboard.height.toLocaleString()} />
+        <ExplorerLink class="tip-block-link" href={blockPath(dashboard.bestBlockHash)} onNavigate={onNavigate}>
+          <Stat label="Block" value={dashboard.height.toLocaleString()} />
+        </ExplorerLink>
         <div class="stat-rule" />
         <Stat
           label="Accumulator value"
@@ -346,6 +355,7 @@ function TransactionPanel({
   transactionError,
   onSelect,
   onBack,
+  onNavigate,
   animateStream,
   arrivalHeight,
   onToggleAnimation,
@@ -357,6 +367,7 @@ function TransactionPanel({
   transactionError: string | null;
   onSelect: (selection: TransactionSelection) => void;
   onBack: () => void;
+  onNavigate: (path: string) => void;
   animateStream: boolean;
   arrivalHeight: number | null;
   onToggleAnimation: () => void;
@@ -389,7 +400,7 @@ function TransactionPanel({
       </div>
       {txid !== null ? (
         selection?.transaction.txid === txid ? (
-          <SelectedTransactionView selection={selection} onBack={onBack} />
+          <SelectedTransactionView selection={selection} onBack={onBack} onNavigate={onNavigate} />
         ) : (
           <div class="selected-transaction">
             <button class="back-button" onClick={onBack}>← Back to live stream</button>
@@ -406,7 +417,7 @@ function TransactionPanel({
             key={arrivalHeight ?? 'initial-stream'}
           >
             {dashboard.blocks.map((block) => (
-              <BlockGroup block={block} tip={dashboard.height} onSelect={onSelect} />
+              <BlockGroup key={block.hash} block={block} tip={dashboard.height} onSelect={onSelect} onNavigate={onNavigate} />
             ))}
             {!dashboard.blocks.length && <div class="no-transactions">No blocks on this page.</div>}
           </div>
@@ -421,21 +432,24 @@ function BlockGroup({
   block,
   tip,
   onSelect,
+  onNavigate,
 }: {
   block: ExplorerBlock;
   tip: number;
   onSelect: (selection: TransactionSelection) => void;
+  onNavigate: (path: string) => void;
 }) {
   return (
     <article class="block-group">
-      <div class="block-heading">
+      <ExplorerLink class="block-heading block-link" href={blockPath(block.hash)} onNavigate={onNavigate}>
         <span>BLOCK <b>{block.height.toLocaleString()}</b></span>
         <span>{block.transactions.length} TX</span>
         <span>{Math.max(1, tip - block.height + 1)} CONF</span>
         <span title={block.hash}>{shortHash(block.hash, 8, 6)}</span>
-      </div>
+      </ExplorerLink>
       {block.transactions.map((transaction, index) => (
         <TransactionRow
+          key={transaction.txid}
           transaction={transaction}
           coinbase={index === 0}
           onSelect={() => onSelect({
@@ -449,69 +463,26 @@ function BlockGroup({
   );
 }
 
-function TransactionRow({
-  transaction,
-  coinbase,
-  onSelect,
-}: {
-  transaction: Transaction;
-  coinbase: boolean;
-  onSelect: () => void;
-}) {
-  return (
-    <div class="transaction">
-      <a
-        class="transaction-row"
-        href={transactionPath(transaction.txid)}
-        onClick={(event) => {
-          if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-          event.preventDefault();
-          onSelect();
-        }}
-      >
-        <TransactionSummary transaction={transaction} coinbase={coinbase} marker="+" />
-      </a>
-    </div>
-  );
-}
-
-function TransactionSummary({
-  transaction,
-  coinbase,
-  marker,
-}: {
-  transaction: Transaction;
-  coinbase: boolean;
-  marker: string;
-}) {
-  const pools = transactionPools(transaction);
-  const balance = transactionValueBalance(transaction);
-  return (
-    <>
-      <span class="txid"><i>{marker}</i><b title={transaction.txid}>{shortHash(transaction.txid, 12, 7)}</b>{coinbase && <em>COINBASE</em>}</span>
-      <span class={balance && balance < 0 ? 'negative' : ''}>{formatZec(balance)}</span>
-      <span class="pool-emojis">
-        {pools.map((key) => {
-          const pool = POOL_TYPES.find((item) => item.key === key)!;
-          return <i title={pool.label} aria-label={pool.label}>{pool.emoji}</i>;
-        })}
-      </span>
-    </>
-  );
-}
-
 function SelectedTransactionView({
   selection,
   onBack,
+  onNavigate,
 }: {
   selection: TransactionSelection;
   onBack: () => void;
+  onNavigate: (path: string) => void;
 }) {
   return (
     <div class="selected-transaction">
       <button class="back-button" onClick={onBack}>← Back to live stream</button>
       <div class="block-heading">
-        <span>{selection.blockHeight === null ? 'UNCONFIRMED' : <>BLOCK <b>{selection.blockHeight.toLocaleString()}</b></>}</span>
+        <span>{selection.blockHeight === null ? 'UNCONFIRMED' : (
+          <ExplorerLink
+            href={blockPath(typeof selection.transaction.blockhash === 'string' && isTransactionId(selection.transaction.blockhash)
+              ? selection.transaction.blockhash : selection.blockHeight)}
+            onNavigate={onNavigate}
+          >BLOCK <b>{selection.blockHeight.toLocaleString()}</b></ExplorerLink>
+        )}</span>
         <span>SELECTED TRANSACTION</span>
       </div>
       <div class="transaction open">

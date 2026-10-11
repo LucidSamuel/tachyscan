@@ -47,6 +47,19 @@ export interface ExplorerBlock {
   transactions: Transaction[];
 }
 
+/** The full verbose getblock response, including fields not displayed in the summary. */
+export interface BlockDetails {
+  hash: string;
+  height: number;
+  time: number;
+  tx: Transaction[];
+  confirmations?: number;
+  size?: number;
+  previousblockhash?: string;
+  nextblockhash?: string;
+  [key: string]: unknown;
+}
+
 export interface Transaction {
   txid: string;
   version?: number;

@@ -21,6 +21,7 @@ use tower_http::{services::ServeDir, trace::TraceLayer};
 use tracing::{info, warn};
 use zcash_tachyon::{Anchor, EpochIndex, TachygramSetCommit};
 
+mod blocks;
 mod transactions;
 
 const DEFAULT_EPOCH_LENGTH: u32 = zcash_tachyon::constants::EPOCH_SIZE;
@@ -358,21 +359,7 @@ async fn main() {
         }
     });
 
-    let app = Router::new()
-        .route("/api/health", get(health))
-        .route("/api/dashboard", get(dashboard))
-        .route("/api/transactions/{txid}", get(transactions::transaction))
-        .route_service(
-            "/tx/{txid}",
-            tower_http::services::ServeFile::new("dist/index.html"),
-        )
-        .route_service(
-            "/tx/{txid}/",
-            tower_http::services::ServeFile::new("dist/index.html"),
-        )
-        .fallback_service(ServeDir::new("dist").append_index_html_on_directories(true))
-        .layer(TraceLayer::new_for_http())
-        .with_state(state);
+    let app = app_router(state, "dist");
     let listen = env::var("TACHYSCAN_LISTEN").unwrap_or_else(|_| "127.0.0.1:4141".to_string());
     let listener = tokio::net::TcpListener::bind(&listen)
         .await
@@ -385,6 +372,31 @@ async fn main() {
         .with_graceful_shutdown(shutdown())
         .await
         .unwrap();
+}
+
+fn app_router(state: AppState, assets_dir: &str) -> Router {
+    let index = PathBuf::from(assets_dir).join("index.html");
+    Router::new()
+        .route("/api/health", get(health))
+        .route("/api/dashboard", get(dashboard))
+        .route("/api/transactions/{txid}", get(transactions::transaction))
+        .route("/api/blocks/{id}", get(blocks::block))
+        .route_service(
+            "/block/{id}",
+            tower_http::services::ServeFile::new(index.clone()),
+        )
+        .route_service(
+            "/block/{id}/",
+            tower_http::services::ServeFile::new(index.clone()),
+        )
+        .route_service(
+            "/tx/{txid}",
+            tower_http::services::ServeFile::new(index.clone()),
+        )
+        .route_service("/tx/{txid}/", tower_http::services::ServeFile::new(index))
+        .fallback_service(ServeDir::new(assets_dir).append_index_html_on_directories(true))
+        .layer(TraceLayer::new_for_http())
+        .with_state(state)
 }
 
 async fn shutdown() {
