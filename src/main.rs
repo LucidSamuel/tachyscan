@@ -29,6 +29,8 @@ const TACHYGRAM_BYTES: u64 = 32;
 const MAX_CHART_EPOCHS: u32 = 6;
 const DEFAULT_BLOCK_TARGET_SECONDS: u64 = 75;
 const BLOCK_CADENCE_SAMPLE_LIMIT: usize = 12;
+/// How far behind the tip the index may be for a dashboard request to catch it up inline.
+const CATCH_UP_BLOCKS: u32 = 64;
 
 #[derive(Clone)]
 struct AppState {
@@ -37,6 +39,9 @@ struct AppState {
     cache_path: PathBuf,
     epoch_length: u32,
     block_cadence: Arc<tokio::sync::Mutex<BlockCadence>>,
+    /// Serializes index updates so the background loop and on-demand catch-ups never
+    /// apply the same block twice.
+    sync_lock: Arc<tokio::sync::Mutex<()>>,
 }
 
 #[derive(Clone)]
@@ -129,6 +134,18 @@ struct RpcBlock {
     time: i64,
     #[serde(rename(deserialize = "tx", serialize = "transactions"), default)]
     transactions: Vec<Value>,
+    #[serde(rename(deserialize = "valuePools"), default, skip_serializing)]
+    value_pools: Vec<Value>,
+}
+
+impl RpcBlock {
+    /// The Tachyon pool balance after this block, when the node reports value pools.
+    fn tachyon_pool_zat(&self) -> Option<i64> {
+        self.value_pools
+            .iter()
+            .find(|pool| pool.get("id").and_then(Value::as_str) == Some("tachyon"))
+            .and_then(|pool| pool.get("chainValueZat").and_then(Value::as_i64))
+    }
 }
 
 #[derive(Deserialize)]
@@ -291,6 +308,7 @@ struct DashboardResponse {
     accumulator: Option<String>,
     retained_tachygram_count: usize,
     tachygrams: Vec<TachygramResponse>,
+    tachyon_pool_zat: Option<i64>,
     footprint_bytes: u64,
     footprint_history: Vec<FootprintPoint>,
     index: IndexStatus,
@@ -344,6 +362,7 @@ async fn main() {
         cache_path,
         epoch_length,
         block_cadence: Arc::new(tokio::sync::Mutex::new(BlockCadence::default())),
+        sync_lock: Arc::default(),
     };
 
     let sync_state = state.clone();
@@ -449,7 +468,35 @@ async fn build_dashboard(
 
     let (block_target_seconds, next_block_estimate) =
         state.block_cadence.lock().await.observe(info.blocks);
-    let index = state.index.read().await.clone();
+
+    // Serve the index-derived fields at the tip this response reports. The background
+    // loop polls every few seconds, so without this a fresh block leaves the header one
+    // block ahead of the tachygrams, activity and footprint beneath it.
+    let lag = {
+        let index = state.index.read().await;
+        match (index.status.phase.as_str(), index.scanned_height) {
+            ("ready", Some(scanned)) => info.blocks.saturating_sub(scanned),
+            _ => 0,
+        }
+    };
+    if lag > 0 && lag <= CATCH_UP_BLOCKS {
+        if let Err(error) = sync_index(state).await {
+            warn!(%error, "on-demand Tachyon index catch-up failed");
+        }
+    }
+    let mut index = state.index.read().await.clone();
+    if index.status.phase == "ready"
+        && index
+            .scanned_height
+            .is_some_and(|scanned| scanned < info.blocks)
+    {
+        index.status.phase = "syncing".to_string();
+        index.status.target_height = info.blocks;
+    }
+    let tachyon_pool_zat = match blocks.first() {
+        Some(tip) if tip.height == info.blocks => tip.tachyon_pool_zat(),
+        _ => state.rpc.block_at(info.blocks).await?.tachyon_pool_zat(),
+    };
     let tachygrams = tachyon_info.as_ref().map_or_else(
         || {
             index
@@ -497,6 +544,7 @@ async fn build_dashboard(
         next_block_estimate,
         accumulator,
         retained_tachygram_count,
+        tachyon_pool_zat,
         footprint_bytes,
         tachygrams,
         footprint_history: index.footprint_history,
@@ -508,6 +556,7 @@ async fn build_dashboard(
 }
 
 async fn sync_index(state: &AppState) -> Result<(), String> {
+    let _guard = state.sync_lock.lock().await;
     let info: BlockchainInfo = state.rpc.call("getblockchaininfo", json!([])).await?;
     let activation = tachyon_activation(&info)
         .ok_or_else(|| "connected node is not Tachyon-enabled".to_string())?;
@@ -780,6 +829,87 @@ mod tests {
         assert_eq!(serialized["transactions"][0]["txid"], "11");
     }
 
+    #[tokio::test]
+    async fn dashboard_catches_the_index_up_to_the_tip_before_answering() {
+        use axum::{routing::post, Json, Router};
+        use std::sync::atomic::{AtomicU32, Ordering};
+
+        let tip = Arc::new(AtomicU32::new(8));
+        let rpc_tip = tip.clone();
+        let rpc_app = Router::new().route(
+            "/",
+            post(move |Json(request): Json<Value>| {
+                let tip = rpc_tip.clone();
+                async move {
+                    let hash = |height: u32| format!("{height:064x}");
+                    match request["method"].as_str().unwrap() {
+                        "getblockchaininfo" => Json(json!({ "result": {
+                            "chain": "test",
+                            "blocks": tip.load(Ordering::SeqCst),
+                            "bestblockhash": hash(tip.load(Ordering::SeqCst)),
+                            "upgrades": { "c8e71055": { "name": "NuTachyon", "activationheight": 8 } },
+                        }})),
+                        "getblockhash" => Json(json!({ "result": hash(request["params"][0].as_u64().unwrap() as u32) })),
+                        "getblock" => {
+                            let height = u32::from_str_radix(request["params"][0].as_str().unwrap(), 16).unwrap();
+                            Json(json!({ "result": {
+                                "hash": hash(height), "height": height, "time": 1, "tx": [],
+                                "valuePools": [{ "id": "tachyon", "chainValueZat": 500 + i64::from(height) }],
+                            }}))
+                        }
+                        "gettachyoninfo" => Json(json!({ "error": { "code": -32601, "message": "unknown" } })),
+                        other => panic!("unexpected RPC {other}"),
+                    }
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let rpc_url = format!("http://{}", listener.local_addr().unwrap());
+        let rpc_server = tokio::spawn(async move { axum::serve(listener, rpc_app).await.unwrap() });
+        let cache_path =
+            std::env::temp_dir().join(format!("tachyscan-catch-up-{}.json", std::process::id()));
+        let state = AppState {
+            rpc: RpcClient {
+                client: reqwest::Client::new(),
+                url: rpc_url,
+                authorization: None,
+            },
+            index: Arc::new(RwLock::new(TachyonIndex::default())),
+            cache_path: cache_path.clone(),
+            epoch_length: DEFAULT_EPOCH_LENGTH,
+            block_cadence: Arc::default(),
+            sync_lock: Arc::default(),
+        };
+
+        // The background loop has seen the tip at 8 and reports ready.
+        sync_index(&state).await.unwrap();
+        assert_eq!(state.index.read().await.status.phase, "ready");
+
+        // A block lands before the loop's next pass. The dashboard must not report a tip
+        // the index has not reached.
+        tip.store(9, Ordering::SeqCst);
+        let dashboard = build_dashboard(&state, DashboardQuery { page: 1, limit: 8 })
+            .await
+            .unwrap();
+        assert_eq!(dashboard.height, 9);
+        assert_eq!(dashboard.index.phase, "ready");
+        assert_eq!(dashboard.index.scanned_height, Some(9));
+        assert_eq!(dashboard.footprint_history.last().unwrap().height, 9);
+        assert_eq!(dashboard.tachyon_pool_zat, Some(509));
+
+        // Far behind, the request answers immediately and says so instead of catching up.
+        tip.store(9 + CATCH_UP_BLOCKS + 1, Ordering::SeqCst);
+        let dashboard = build_dashboard(&state, DashboardQuery { page: 1, limit: 8 })
+            .await
+            .unwrap();
+        assert_eq!(dashboard.index.phase, "syncing");
+        assert_eq!(dashboard.index.scanned_height, Some(9));
+        assert_eq!(dashboard.index.target_height, 9 + CATCH_UP_BLOCKS + 1);
+
+        rpc_server.abort();
+        let _ = std::fs::remove_file(cache_path);
+    }
+
     #[test]
     fn block_cadence_uses_wall_clock_height_changes() {
         let mut cadence = BlockCadence::default();
@@ -798,6 +928,7 @@ mod tests {
             height,
             time: 0,
             transactions: vec![],
+            value_pools: vec![],
         };
 
         apply_block(&mut index, &block(7), 7, 8).unwrap();

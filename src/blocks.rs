@@ -179,6 +179,7 @@ mod tests {
             cache_path: Default::default(),
             epoch_length: crate::DEFAULT_EPOCH_LENGTH,
             block_cadence: Arc::default(),
+            sync_lock: Arc::default(),
         };
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());

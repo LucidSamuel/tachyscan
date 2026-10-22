@@ -6,6 +6,8 @@ import { formatBytes, shortHash, transactionPools } from './lib';
 import { ExplorerLink } from './ExplorerLink';
 import { JsonViewer } from './JsonViewer';
 import { TransactionRow } from './TransactionRow';
+import { StampView } from './StampView';
+import { HashGlyph } from './HashGlyph';
 
 export function BlockPage({ id, network, onNavigate }: {
   id: string;
@@ -51,7 +53,7 @@ export function BlockPage({ id, network, onNavigate }: {
         {block ? <>
           <div class="block-detail-summary">
             <p class="section-kicker">BLOCK HASH</p>
-            <ExplorerLink class="block-hash" href={blockPath(block.hash)} onNavigate={onNavigate}>{block.hash}</ExplorerLink>
+            <ExplorerLink class="block-hash" href={blockPath(block.hash)} onNavigate={onNavigate}><HashGlyph hash={block.hash} size={16} />{block.hash}</ExplorerLink>
             <dl class="block-facts">
               <div><dt>Timestamp (UTC)</dt><dd>{new Date(block.time * 1000).toISOString().replace('T', ' ').replace('.000Z', '')}</dd></div>
               <div><dt>Confirmations</dt><dd>{block.confirmations === -1 ? 'Not in main chain' : block.confirmations?.toLocaleString() ?? '—'}</dd></div>
@@ -68,6 +70,7 @@ export function BlockPage({ id, network, onNavigate }: {
                 ? <ExplorerLink href={blockPath(block.nextblockhash)} onNavigate={onNavigate}>Next block →</ExplorerLink>
                 : <span>No next block at lookup</span>}
             </nav>
+            <StampView transactions={block.tx} onNavigate={onNavigate} />
           </div>
           <div class="column-head"><span>TxID</span><span>Value balance</span><span>Type</span></div>
           {block.tx.map((transaction, index) => <TransactionRow
