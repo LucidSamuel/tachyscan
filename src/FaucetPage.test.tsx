@@ -80,6 +80,9 @@ describe('faucet', () => {
     }));
     await mount();
     expect(host.textContent).toContain('0:02');
+    expect(host.textContent).toContain('YOUR IP COOLDOWN');
+    expect(host.textContent).toContain('Until your IP address can request another payment.');
+    expect(host.textContent).toContain('People sharing a public IP share this limit.');
     expect(host.querySelector('button')!.disabled).toBe(true);
     await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
     expect(host.querySelector('button')!.disabled).toBe(true);
@@ -232,10 +235,10 @@ describe('faucet', () => {
     expect(host.querySelector('textarea')!.disabled).toBe(false);
   });
 
-  it('handles a visitor losing the global cooldown race during a solve', async () => {
+  it('handles a visitor sharing an IP losing the cooldown race during a solve', async () => {
     fetchMock.mockImplementation(async (url: string) => url.endsWith('/status') ? response(ready)
       : url.endsWith('/challenge') ? response(vector.challenge)
-        : response({ error: 'The global faucet cooldown is still running' }, 429));
+        : response({ error: 'The faucet cooldown for your IP address is still running' }, 429));
     await mount();
     await enter(key);
     await submit();

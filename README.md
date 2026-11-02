@@ -68,11 +68,16 @@ Run the Python service from the sibling `tachyon-faucet` repository on
 `127.0.0.1:4142`. Its README includes wallet setup, systemd, and nginx examples.
 In production, proxy `/api/faucet/` to that service while keeping other `/api/`
 requests on Tachyscan's Rust backend. Vite already has both routes configured;
-add `http://localhost:5173` to the faucet's `allowed_origins` for development.
+add `http://127.0.0.1:5173` to the faucet's `allowed_origins` and set
+`trusted_proxy_ips = []` for development. In production, configure nginx to
+overwrite `X-Real-IP` with `$remote_addr` and set the faucet's `trusted_proxy_ips`
+to the nginx peer addresses (usually `127.0.0.1` and `::1`). See its README.
 
-The page accepts a Tachyon payment key, displays the server's global cooldown,
+The page accepts a Tachyon payment key, displays the requesting IP's cooldown,
 and downloads the recipient's note JSON. Amount and cooldown are configured on
-the service, not in the frontend. Defaults are 0.01 testnet ZEC and five minutes.
+the service, not in the frontend. Defaults are 0.01 testnet ZEC and five minutes
+per IP, plus an Equihash proof for each new claim. Visitors sharing a public IP
+share that cooldown. The wallet continues to process one payment at a time.
 The same-tab claim survives refreshes via a private session-storage token;
 download the receipt before closing the tab. No wallet keys or RPC credentials
 belong in the frontend. Without the service, claiming stays disabled.
