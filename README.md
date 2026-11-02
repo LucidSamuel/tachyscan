@@ -1,5 +1,13 @@
 # Tachyscan
 
+The faucet now solves an Equihash(96,5) puzzle in a browser Worker before
+requesting a new payment. Its gold-to-teal activity bar shows elapsed time and
+search activity, supports cancellation, and respects reduced-motion settings.
+Deploy the matching `tachyon-faucet` service alongside this frontend. Configure
+`pow_difficulty_bits` (default 7) and `pow_challenge_seconds` (default 600) in the
+faucet service; no Zakura changes or database reset are needed. Existing private
+claim recovery and note downloads do not require another puzzle.
+
 A Tachyon-flavored block explorer for a NuTachyon-enabled Zakura node. The UI is Preact; a small Rust backend keeps RPC credentials server-side and reads authoritative live Tachyon state from Zakura's `gettachyoninfo` RPC.
 
 ## Run it

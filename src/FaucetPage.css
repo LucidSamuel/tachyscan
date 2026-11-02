@@ -30,6 +30,22 @@
 .faucet-tx-link span { display: block; overflow-wrap: anywhere; color: var(--muted); }
 .faucet-tx-link:hover { text-decoration: underline; }
 .faucet-claim pre { overflow-x: auto; white-space: pre-wrap; overflow-wrap: anywhere; border: 1px solid var(--teal-dark); background: #030604; color: var(--teal); padding: 16px; font-size: 10px; line-height: 1.8; }
+.faucet-pow { margin-top: 24px; padding: 22px; border: 1px solid var(--teal-dark); background: radial-gradient(ellipse at top left, #d4a0170d, transparent 75%), #030604; }
+.faucet-pow-title, .faucet-pow-detail { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.faucet-pow-title .section-kicker { color: var(--gold); font-size: 10px; }
+.faucet-pow-time { color: var(--teal); font-size: 12px; font-variant-numeric: tabular-nums; }
+.faucet-pow h3 { font-size: 21px; font-weight: 400; color: var(--gold); margin: 16px 0 24px; }
+.faucet-pow-track { height: 8px; position: relative; overflow: hidden; background: #4a9ea01a; border-radius: 4px; }
+.faucet-pow-trail { position: absolute; inset: 0; width: 55%; border-radius: inherit; background: linear-gradient(90deg, transparent, #d4a017, #4a9ea0); animation: faucet-work 2.4s ease-in-out infinite; }
+.faucet-pow-spark { position: absolute; inset: 0; background: repeating-linear-gradient(90deg, transparent 0 11px, #03060488 11px 13px); }
+.faucet-pow-detail { margin-top: 12px; color: var(--teal); font-size: 9px; font-variant-numeric: tabular-nums; }
+.faucet-pow-detail > :last-child { letter-spacing: .15em; color: var(--muted); }
+.faucet-pow p { margin: 20px 0; color: var(--muted); font-size: 11px; line-height: 1.8; }
+.faucet-pow .faucet-secondary { padding: 9px 14px; font-size: 11px; }
+@keyframes faucet-work { from { transform: translateX(-110%); } to { transform: translateX(190%); } }
+@media (prefers-reduced-motion: reduce) {
+  .faucet-pow-trail { animation: none; width: 100%; opacity: .75; }
+}
 @media (max-width: 800px) {
   .faucet-page { grid-template-columns: 1fr; }
   .faucet-form-panel { border-left: 0; border-top: 1px solid var(--line); }

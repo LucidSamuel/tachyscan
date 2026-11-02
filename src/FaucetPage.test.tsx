@@ -3,6 +3,10 @@ import { render } from 'preact';
 import { act } from 'preact/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { FaucetPage, normalizePaymentKey } from './FaucetPage';
+import { solvePuzzle } from './faucet-pow';
+import vector from './fixtures/equihash.json';
+
+vi.mock('./faucet-pow', () => ({ solvePuzzle: vi.fn() }));
 
 const key = '01' + '00'.repeat(31);
 const address = 'tachyon-test:' + key;
@@ -25,8 +29,9 @@ beforeEach(() => {
   host = document.createElement('div');
   document.body.append(host);
   fetchMock = vi.fn(async (url: string) => url.endsWith('/status')
-    ? response(ready) : response({ error: 'Claim not found' }, 404));
+    ? response(ready) : url.endsWith('/challenge') ? response(vector.challenge) : response({ error: 'Claim not found' }, 404));
   vi.stubGlobal('fetch', fetchMock);
+  vi.mocked(solvePuzzle).mockReset().mockResolvedValue(vector.proof);
 });
 
 afterEach(async () => {
@@ -52,6 +57,9 @@ async function enter(value: string) {
 async function submit() {
   await act(async () => {
     host.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    // Flush the challenge -> worker -> claim promise chain. A deliberately
+    // pending worker still lets this return so cancellation can be exercised.
+    for (let i = 0; i < 12; i++) await Promise.resolve();
   });
   await act(async () => {});
 }
@@ -100,6 +108,7 @@ describe('faucet', () => {
     const posts: string[] = [];
     fetchMock.mockImplementation(async (url: string, init: RequestInit = {}) => {
       if (url.endsWith('/status')) return response(ready);
+      if (url.endsWith('/challenge')) return response(vector.challenge);
       if (init.method === 'POST') {
         posts.push(String(init.body));
         expect(JSON.parse(sessionStorage.getItem(storage)!)).toEqual(JSON.parse(String(init.body)));
@@ -118,6 +127,7 @@ describe('faucet', () => {
     await act(async () => {});
     expect(posts).toHaveLength(2);
     expect(posts[0]).toBe(posts[1]);
+    expect(solvePuzzle).toHaveBeenCalledOnce();
     expect(host.textContent).toContain('Preparing your payment');
   });
 
@@ -149,6 +159,7 @@ describe('faucet', () => {
   it('allows correction after the server rejects admission', async () => {
     fetchMock.mockImplementation(async (url: string, init: RequestInit = {}) => {
       if (url.endsWith('/status')) return response(ready);
+      if (url.endsWith('/challenge')) return response(vector.challenge);
       if (init.method === 'POST') return response({ error: 'Use your own wallet’s key' }, 400);
       return response({ error: 'Claim not found' }, 404);
     });
@@ -169,6 +180,67 @@ describe('faucet', () => {
     expect(host.textContent).not.toContain('Download note JSON');
     const restart = Array.from(host.querySelectorAll('button')).find((button) => button.textContent === 'Start another request')!;
     await act(() => restart.click());
+    expect(sessionStorage.getItem(storage)).toBeNull();
+    expect(host.querySelector('textarea')!.disabled).toBe(false);
+  });
+
+  it('shows real search activity and cancels before creating a claim', async () => {
+    let signal: AbortSignal | undefined;
+    vi.mocked(solvePuzzle).mockImplementation((_challenge, abort, report) => {
+      signal = abort;
+      report({ attempts: 12, phase: 'matching', round: 3 });
+      return new Promise((_resolve, reject) => {
+        abort.addEventListener('abort', () => reject(new DOMException('Cancelled', 'AbortError')));
+      });
+    });
+    await mount();
+    await enter(key);
+    await submit();
+    expect(host.querySelector('[role="progressbar"]')?.hasAttribute('aria-valuenow')).toBe(false);
+    expect(host.textContent).toContain('Search 12 · Matching 3/5');
+    expect(host.querySelector('textarea')!.disabled).toBe(true);
+    expect(sessionStorage.getItem(storage)).toBeNull();
+    await act(async () => Array.from(host.querySelectorAll('button')).find(b => b.textContent === 'Cancel puzzle')!.click());
+    expect(signal?.aborted).toBe(true);
+    expect(host.querySelector('[role="progressbar"]')).toBeNull();
+    expect(host.querySelector('[role="alert"]')).toBeNull();
+    expect(host.querySelector('textarea')!.disabled).toBe(false);
+    expect(fetchMock.mock.calls.some(([url]) => url.endsWith('/claims'))).toBe(false);
+  });
+
+  it('cancels the worker when navigating away', async () => {
+    let signal: AbortSignal | undefined;
+    vi.mocked(solvePuzzle).mockImplementation((_challenge, abort) => {
+      signal = abort;
+      return new Promise((_resolve, reject) => abort.addEventListener('abort', () => reject(new DOMException('Cancelled', 'AbortError'))));
+    });
+    await mount();
+    await enter(key);
+    await submit();
+    await act(() => render(null, host));
+    expect(signal?.aborted).toBe(true);
+    expect(fetchMock.mock.calls.some(([url]) => url.endsWith('/claims'))).toBe(false);
+  });
+
+  it('lets the visitor retry a failed or expired search without saving a claim', async () => {
+    vi.mocked(solvePuzzle).mockRejectedValue(new Error('The puzzle expired. Please try again.'));
+    await mount();
+    await enter(key);
+    await submit();
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain('puzzle expired');
+    expect(sessionStorage.getItem(storage)).toBeNull();
+    expect(host.querySelector('textarea')!.disabled).toBe(false);
+  });
+
+  it('handles a visitor losing the global cooldown race during a solve', async () => {
+    fetchMock.mockImplementation(async (url: string) => url.endsWith('/status') ? response(ready)
+      : url.endsWith('/challenge') ? response(vector.challenge)
+        : response({ error: 'The global faucet cooldown is still running' }, 429));
+    await mount();
+    await enter(key);
+    await submit();
+    expect(solvePuzzle).toHaveBeenCalledOnce();
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain('cooldown');
     expect(sessionStorage.getItem(storage)).toBeNull();
     expect(host.querySelector('textarea')!.disabled).toBe(false);
   });

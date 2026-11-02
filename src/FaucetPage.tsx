@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { ExplorerLink } from './ExplorerLink';
 import { transactionPath } from './transaction-route';
+import { solvePuzzle, type Challenge, type Proof, type WorkProgress } from './faucet-pow';
 import './FaucetPage.css';
 
 interface FaucetStatus {
@@ -20,7 +21,7 @@ interface Claim {
   receipt_available: boolean;
 }
 
-interface SavedRequest { token: string; address: string }
+interface SavedRequest { token: string; address: string; proof?: Proof }
 const STORAGE_KEY = 'tachyscan-faucet-request';
 const FIELD_MODULUS = BigInt('0x40000000000000000000000000000000224698fc094cf91b992d30ed00000001');
 
@@ -43,7 +44,8 @@ function savedRequest(): SavedRequest | null {
 
 async function api(path: string, init?: RequestInit) {
   const response = await fetch('/api/faucet/' + path, {
-    ...init, cache: 'no-store', signal: AbortSignal.timeout(15000),
+    ...init, cache: 'no-store', signal: init?.signal
+      ? AbortSignal.any([init.signal, AbortSignal.timeout(15000)]) : AbortSignal.timeout(15000),
   });
   const data = await response.json();
   if (!response.ok) {
@@ -84,8 +86,16 @@ export function FaucetPage({ onNavigate }: { onNavigate: (path: string) => void 
   const [submitting, setSubmitting] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [claimMissing, setClaimMissing] = useState(false);
+  const [work, setWork] = useState<{ started: number; progress: WorkProgress | null } | null>(null);
+  const puzzleController = useRef<AbortController | null>(null);
+  const mounted = useRef(true);
   const submitLock = useRef(false);
   const refresh = useRef<() => void>(() => {});
+
+  useEffect(() => () => {
+    mounted.current = false;
+    puzzleController.current?.abort();
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -170,7 +180,21 @@ export function FaucetPage({ onNavigate }: { onNavigate: (path: string) => void 
       if (!next) {
         const address = normalizePaymentKey(input);
         const token = Array.from(crypto.getRandomValues(new Uint8Array(32)), (byte) => byte.toString(16).padStart(2, '0')).join('');
-        next = { address, token };
+        const controller = new AbortController();
+        puzzleController.current = controller;
+        const started = Date.now();
+        setWork({ started, progress: null });
+        const challenge: Challenge = await api('challenge', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ address, token }), signal: controller.signal,
+        });
+        controller.signal.throwIfAborted();
+        const proof = await solvePuzzle(challenge, controller.signal,
+          (progress) => setWork({ started, progress }));
+        controller.signal.throwIfAborted();
+        puzzleController.current = null;
+        setWork(null);
+        next = { address, token, proof };
         // Save before POST: a lost response can be recovered without sending twice.
         sessionStorage.setItem(STORAGE_KEY, JSON.stringify(next));
         setRequest(next);
@@ -180,6 +204,7 @@ export function FaucetPage({ onNavigate }: { onNavigate: (path: string) => void 
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(next),
       });
+      if (!mounted.current) return;
       setClaim(data.claim);
       setClaimMissing(false);
       setStatus(data.status);
@@ -189,19 +214,24 @@ export function FaucetPage({ onNavigate }: { onNavigate: (path: string) => void 
       setLastStatus(receivedAt);
       setConnectionError(false);
     } catch (cause) {
+      if (!mounted.current || (cause as Error).name === 'AbortError') return;
       setError((cause as Error).message);
       // These responses definitively rejected admission. Keep the token for
       // ambiguous failures, but let a rejected visitor correct their address.
       const code = (cause as Error & { status?: number }).status;
-      if (code === 400 || code === 429) {
+      if (code === 400 || code === 410 || code === 429) {
         sessionStorage.removeItem(STORAGE_KEY);
         setRequest(null);
         setClaim(null);
       }
     } finally {
+      puzzleController.current = null;
       submitLock.current = false;
-      setSubmitting(false);
-      refresh.current();
+      if (mounted.current) {
+        setWork(null);
+        setSubmitting(false);
+        refresh.current();
+      }
     }
   };
 
@@ -259,11 +289,29 @@ export function FaucetPage({ onNavigate }: { onNavigate: (path: string) => void 
           <p class="faucet-hint">Paste the payment key or <code>tachyon-test:</code> address from your wallet’s <code>address</code> command.</p>
           <textarea id="payment-key" value={input} onInput={(event) => setInput(event.currentTarget.value)}
             placeholder="tachyon-test:…" rows={3} maxLength={128} required
-            spellcheck={false} autoCapitalize="off" autoComplete="off" disabled={request !== null} />
+            spellcheck={false} autoCapitalize="off" autoComplete="off" disabled={request !== null || submitting} />
           {!request && <button class="faucet-primary" type="submit" disabled={!canClaim || submitting}>
-            {submitting ? 'Submitting…' : 'Request ' + (status ? (status.amount_zat / 100000000).toLocaleString(undefined, { maximumFractionDigits: 8 }) + ' testnet ZEC' : 'test funds')}
+            {work ? 'Solving your puzzle…' : submitting ? 'Submitting…' : 'Request ' + (status ? (status.amount_zat / 100000000).toLocaleString(undefined, { maximumFractionDigits: 8 }) + ' testnet ZEC' : 'test funds')}
           </button>}
         </form>
+        {work && <div class="faucet-pow" aria-busy="true">
+          <div class="faucet-pow-title">
+            <span class="section-kicker">A LITTLE PROOF OF WORK</span>
+            <span class="faucet-pow-time">{Math.max(0, Math.floor((now - work.started) / 1000))}s</span>
+          </div>
+          <h3>{work.progress ? 'Finding your spark' : 'Getting your puzzle'}</h3>
+          <div class="faucet-pow-track" role="progressbar" aria-label="Solving Equihash puzzle"
+            aria-valuetext="Searching for a solution; completion time varies">
+            <span class="faucet-pow-trail" /><span class="faucet-pow-spark" />
+          </div>
+          <div class="faucet-pow-detail">
+            <span>{work.progress ? 'Search ' + work.progress.attempts.toLocaleString()
+              + ' · ' + (work.progress.phase === 'hashing' ? 'Hashing' : 'Matching ' + work.progress.round + '/5') : 'Connecting to the faucet…'}</span>
+            <span>EQUIHASH</span>
+          </div>
+          <p>Your browser is solving a small puzzle before requesting funds. Timing varies; you can cancel anytime. This does not reserve the faucet.</p>
+          <button class="faucet-secondary" onClick={() => puzzleController.current?.abort()}>Cancel puzzle</button>
+        </div>}
         {error && <p class="faucet-error" role="alert">{error}</p>}
         {request && <div class="faucet-claim">
           <p class="section-kicker">YOUR PAYMENT</p>
@@ -291,7 +339,7 @@ export function FaucetPage({ onNavigate }: { onNavigate: (path: string) => void 
           <p class="faucet-caption">This tab remembers your private claim across refreshes. Download the note before closing it.</p>
         </div>}
         {!request && <div class="faucet-how">
-          <span>01 · Submit your payment key</span>
+          <span>01 · Enter your key and let your browser solve a puzzle</span>
           <span>02 · Download your note JSON</span>
           <span>03 · Import it with devtool and sync</span>
         </div>}
