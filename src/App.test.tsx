@@ -80,7 +80,7 @@ describe('site navigation', () => {
     await click('/faucet');
     expect(window.location.pathname).toBe('/faucet');
     expect(current()).toBe('Faucet');
-    expect(host.textContent).toContain('GLOBAL COOLDOWN');
+    expect(host.textContent).toContain('YOUR IP COOLDOWN');
     await click('/tutorial');
     expect(current()).toBe('Tutorial');
     expect(document.title).toBe('Tutorial · Tachyscan');
@@ -103,7 +103,7 @@ describe('site navigation', () => {
     window.history.replaceState(null, '', path);
     fetchMock.mockRejectedValue(new Error('Node offline'));
     await mount(<App />);
-    expect(host.textContent).toContain(path.startsWith('/faucet') ? 'GLOBAL COOLDOWN' : 'TACHYON ALPHA TESTNET');
+    expect(host.textContent).toContain(path.startsWith('/faucet') ? 'YOUR IP COOLDOWN' : 'TACHYON ALPHA TESTNET');
     expect(fetchMock.mock.calls.some(([url]) => url.startsWith('/api/dashboard'))).toBe(false);
     expect(host.querySelector('nav[aria-label="Main navigation"] [aria-current="page"]')?.getAttribute('href')).toBe(path.replace(/\/$/, ''));
   });

@@ -58,7 +58,7 @@ async function api(path: string, init?: RequestInit) {
 
 const reasons: Record<FaucetStatus['reason'], string> = {
   ready: 'Ready for the next visitor',
-  cooldown: 'A shared pause between payments',
+  cooldown: 'A pause between requests from your IP address',
   syncing: 'The faucet wallet is syncing',
   funding: 'Preparing funds for the next payment',
   processing: 'Finishing the previous payment',
@@ -272,14 +272,15 @@ export function FaucetPage({ onNavigate }: { onNavigate: (path: string) => void 
         <h2 id="faucet-heading">A little fuel<br />for your next <span>💫</span></h2>
         <p>Receive a Tachyon note, download it, and try a transaction.</p>
         <div class="faucet-availability">
-          <span class="section-kicker">GLOBAL COOLDOWN</span>
+          <span class="section-kicker">YOUR IP COOLDOWN</span>
           <strong>{!connected ? 'Connecting…' : seconds ? countdown : status.accepting ? 'Ready' : 'Preparing…'}</strong>
           <p>{!connected ? 'Checking faucet availability.' : seconds
-            ? 'Until anyone can request the next payment.'
+            ? 'Until your IP address can request another payment.'
             : reasons[status.reason]}</p>
         </div>
         <p class="faucet-caption">
-          {status ? 'One payment every ' + Math.round(status.cooldown_seconds / 60 * 10) / 10 + ' minutes, shared by everyone.' : 'One shared cooldown for all visitors.'}
+          {status ? 'One payment per IP address every ' + Math.round(status.cooldown_seconds / 60 * 10) / 10 + ' minutes.' : 'Each IP address has its own cooldown.'}
+          {' '}People sharing a public IP share this limit.
           {' '}Testnet funds only.
         </p>
       </div>
