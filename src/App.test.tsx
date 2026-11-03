@@ -138,11 +138,11 @@ describe('site navigation', () => {
       await click('/pool-info');
       expect(fetchMock).toHaveBeenLastCalledWith('/api/dashboard?page=1&limit=8', expect.anything());
       fetchMock.mockClear();
-      await act(async () => vi.advanceTimersByTimeAsync(6000));
+      await act(async () => { await vi.advanceTimersByTimeAsync(6000); });
       expect(fetchMock).toHaveBeenCalledWith('/api/dashboard?page=1&limit=8', expect.anything());
       await click('/tutorial');
       fetchMock.mockClear();
-      await act(async () => vi.advanceTimersByTimeAsync(6000));
+      await act(async () => { await vi.advanceTimersByTimeAsync(6000); });
       expect(fetchMock).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();

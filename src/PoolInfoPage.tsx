@@ -22,13 +22,13 @@ export function PoolInfoPage({ dashboard, pulse, onNavigate }: {
     <section class="pool-info-page" aria-labelledby="pool-info-heading">
       <div class="pool-info-title"><p class="section-kicker">TACHYON POOL</p><h2 id="pool-info-heading">Pool info</h2></div>
       <div class="pool-info-grid">
-      <EpochPanel dashboard={dashboard} now={now} pulse={pulse} onNavigate={onNavigate} />
-      <section class="footprint-section">
-        <p class="section-kicker">TACHYGRAM PAYLOAD FOOTPRINT</p>
-        <h2>{formatBytes(dashboard.footprintBytes)}</h2>
-        <FootprintChart dashboard={dashboard} />
-      </section>
-    </div>
+        <EpochPanel dashboard={dashboard} now={now} pulse={pulse} onNavigate={onNavigate} />
+        <section class="footprint-section">
+          <p class="section-kicker">TACHYGRAM PAYLOAD FOOTPRINT</p>
+          <h2>{formatBytes(dashboard.footprintBytes)}</h2>
+          <FootprintChart dashboard={dashboard} />
+        </section>
+      </div>
     </section>
   );
 }
