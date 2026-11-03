@@ -179,6 +179,7 @@ mod tests {
             cache_path: Default::default(),
             epoch_length: crate::DEFAULT_EPOCH_LENGTH,
             block_cadence: Arc::default(),
+            sync_lock: Arc::default(),
         };
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
@@ -233,7 +234,14 @@ mod tests {
         rpc_server.abort();
         let _ = rpc_server.await;
         // These pages must be refreshable even while the node is offline.
-        for path in ["/faucet", "/faucet/", "/tutorial", "/tutorial/"] {
+        for path in [
+            "/faucet",
+            "/faucet/",
+            "/tutorial",
+            "/tutorial/",
+            "/pool-info",
+            "/pool-info/",
+        ] {
             let response = client.get(format!("{url}{path}")).send().await.unwrap();
             assert_eq!(response.status(), StatusCode::OK);
             assert!(response

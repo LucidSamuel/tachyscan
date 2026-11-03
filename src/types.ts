@@ -9,6 +9,8 @@ export interface Dashboard {
   accumulator: string | null;
   retainedTachygramCount: number;
   tachygrams: Tachygram[];
+  /** Tachyon pool balance after the tip, when the node reports value pools. */
+  tachyonPoolZat?: number | null;
   footprintBytes: number;
   footprintHistory: FootprintPoint[];
   index: IndexStatus;
@@ -87,6 +89,11 @@ export interface TachyonBundle extends ShieldedBundle {
     type?: 'proof' | 'pointer';
     anchor?: string;
     tachygrams?: string[];
+    coverage?: string;
+    tachygramSet?: string;
+    proof?: string;
+    /** Pointer stamps name the aggregate whose proof stamp covers them. */
+    aggregateId?: string;
     [key: string]: unknown;
   };
 }

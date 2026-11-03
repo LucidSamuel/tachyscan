@@ -24,14 +24,18 @@ ZAKURA_RPC_URL=http://127.0.0.1:8232 \
 
 Open <http://127.0.0.1:4141>. Tachyscan prefers the node's authoritative accumulator when `gettachyoninfo` is available. It also maintains `.tachyscan/index.json` from canonical verbose blocks as a fallback for nodes without PR #983. Recent transactions are usable while that backfill runs.
 
-The navigation bar links **Explorer** (`/`), **Faucet** (`/faucet`), and
+The Pool info page contains the epoch ring and pruning countdown, tachygram activity,
+retained tachygrams, and the footprint chart. The explorer keeps its transaction stream,
+pixel-art pool chips, search, and proof/pointer stamp summaries.
+
+The navigation bar links **Explorer** (`/`), **Pool info** (`/pool-info`), **Faucet** (`/faucet`), and
 **Tutorial** (`/tutorial`). Faucet connects to the separate `tachyon-faucet`
 service; Tutorial links to the Tachyon guide in the
 [zcash-devtool README](https://github.com/S1nus/zcash-devtool/tree/c/tachyon-zakura#readme).
 Both pages can open independently of
 the explorer's node connection. The explorer keeps
 the transaction type key above its stream; block and transaction detail pages
-remain under Explorer. Forward `/faucet` and `/tutorial` to Tachyscan as well,
+remain under Explorer. Forward `/pool-info`, `/faucet`, and `/tutorial` to Tachyscan as well,
 or configure an `index.html` fallback if serving `dist/` separately.
 
 Click a transaction to open `/tx/<full-64-character-txid>`.

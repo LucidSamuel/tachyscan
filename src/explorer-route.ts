@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'preact/hooks';
 import { transactionIdFromPath } from './transaction-route';
 
-export type SitePage = 'explorer' | 'faucet' | 'tutorial';
+export type SitePage = 'explorer' | 'pool-info' | 'faucet' | 'tutorial';
 
 export function pageFromPath(pathname: string): SitePage {
   const path = pathname.replace(/\/$/, '');
+  if (path === '/pool-info') return 'pool-info';
   if (path === '/faucet') return 'faucet';
   if (path === '/tutorial') return 'tutorial';
   return 'explorer';

@@ -70,12 +70,24 @@ async function click(path: string) {
 }
 
 describe('site navigation', () => {
-  it('moves between all three pages and restores Explorer for detail routes', async () => {
+  it('moves between all four pages and restores Explorer for detail routes', async () => {
     await mount(<App />);
     const current = () => host.querySelector('nav[aria-label="Main navigation"] [aria-current="page"]')?.textContent;
     expect(current()).toBe('Explorer');
     expect(host.querySelector('[aria-label="Transaction type key"]')).not.toBeNull();
     expect(host.querySelector('.tachygram-vault, .chart-frame')).toBeNull();
+
+    await click('/pool-info');
+    expect(current()).toBe('Pool info');
+    expect(document.title).toBe('Pool info · Tachyscan');
+    expect(host.querySelector('.epoch-panel')).not.toBeNull();
+    expect(host.querySelector('.activity-strip')).not.toBeNull();
+    expect(host.querySelector('.recent-tachygrams')).not.toBeNull();
+    expect(host.querySelector('.chart-frame')).not.toBeNull();
+    expect(host.querySelector('.transactions-panel')).toBeNull();
+    await click('/');
+    expect(host.querySelector('.epoch-panel, .chart-frame')).toBeNull();
+    expect(host.querySelector('.pool-chip.tachyon .pool-mark')).not.toBeNull();
 
     await click('/faucet');
     expect(window.location.pathname).toBe('/faucet');
@@ -97,6 +109,44 @@ describe('site navigation', () => {
     await vi.waitFor(() => expect(host.querySelector(`a[href="/tx/${txid}"]`)).not.toBeNull());
     await click(`/tx/${txid}`);
     expect(current()).toBe('Explorer');
+  });
+
+  it.each(['/pool-info', '/pool-info/'])('opens the pool page directly at %s', async (path) => {
+    window.history.replaceState(null, '', path);
+    await mount(<App />);
+    expect(host.querySelector('#pool-info-heading')?.textContent).toBe('Pool info');
+    expect(host.querySelector('nav[aria-label="Main navigation"] [aria-current="page"]')?.getAttribute('href')).toBe('/pool-info');
+    await act(async () => {
+      window.history.replaceState(null, '', '/');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    });
+    expect(host.querySelector('.epoch-panel')).toBeNull();
+    await act(async () => {
+      window.history.replaceState(null, '', path);
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    });
+    expect(host.querySelector('.epoch-panel')).not.toBeNull();
+  });
+
+  it('polls the latest pool data even after browsing older explorer pages', async () => {
+    vi.useFakeTimers();
+    try {
+      await mount(<App />);
+      const pageTwo = [...host.querySelectorAll<HTMLButtonElement>('.pagination button')].find((button) => button.textContent === '2')!;
+      await act(async () => pageTwo.click());
+      expect(fetchMock).toHaveBeenLastCalledWith('/api/dashboard?page=2&limit=8', expect.anything());
+      await click('/pool-info');
+      expect(fetchMock).toHaveBeenLastCalledWith('/api/dashboard?page=1&limit=8', expect.anything());
+      fetchMock.mockClear();
+      await act(async () => { await vi.advanceTimersByTimeAsync(6000); });
+      expect(fetchMock).toHaveBeenCalledWith('/api/dashboard?page=1&limit=8', expect.anything());
+      await click('/tutorial');
+      fetchMock.mockClear();
+      await act(async () => { await vi.advanceTimersByTimeAsync(6000); });
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it.each(['/faucet', '/faucet/', '/tutorial', '/tutorial/'])('opens %s without waiting for RPC', async (path) => {

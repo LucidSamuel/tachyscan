@@ -6,12 +6,18 @@ import { ExplorerLink } from './ExplorerLink';
 import { BlockPage } from './BlockPage';
 import { TransactionRow, TransactionSummary } from './TransactionRow';
 import { JsonViewer } from './JsonViewer';
+import { PoolInfoPage } from './PoolInfoPage';
+import { Search } from './Search';
+import { HashGlyph } from './HashGlyph';
+import { StampMarks } from './StampView';
+import { PoolMark } from './PoolMark';
 import { FaucetPage } from './FaucetPage';
-import { POOL_TYPES, durationUntil, formatBytes, shortHash, transactionPools } from './lib';
+import { POOL_TYPES, durationUntil, epochProgress, formatBytes, formatZec, shortHash, transactionPools } from './lib';
 
 const PAGE_SIZE = 8;
 const SITE_PAGES = [
   { id: 'explorer', label: 'Explorer', href: '/' },
+  { id: 'pool-info', label: 'Pool info', href: '/pool-info' },
   { id: 'faucet', label: 'Faucet', href: '/faucet' },
   { id: 'tutorial', label: 'Tutorial', href: '/tutorial' },
 ] as const;
@@ -39,6 +45,8 @@ export function App() {
   const [loading, setLoading] = useState(true);
   const [selection, setSelection] = useState<TransactionSelection | null>(null);
   const { txid, blockId, section, navigate } = useExplorerRoute();
+  const showDashboard = section === 'explorer' || section === 'pool-info';
+  const dashboardPage = section === 'pool-info' ? 1 : page;
   const [transactionError, setTransactionError] = useState<string | null>(null);
   const [animateStream, setAnimateStream] = useState(
     () => localStorage.getItem('tachyscan-stream-motion') !== 'off',
@@ -75,12 +83,12 @@ export function App() {
   }, [txid]);
 
   useEffect(() => {
-    if (section !== 'explorer') return;
+    if (!showDashboard) return;
     const controller = new AbortController();
     setLoading(true);
     const refresh = async () => {
       try {
-        const next = await loadDashboard(page, controller.signal);
+        const next = await loadDashboard(dashboardPage, controller.signal);
         if (controller.signal.aborted) return;
         setDashboard(next);
         setError(null);
@@ -91,12 +99,12 @@ export function App() {
       }
     };
     void refresh();
-    const timer = page === 1 ? window.setInterval(refresh, 6000) : undefined;
+    const timer = dashboardPage === 1 ? window.setInterval(refresh, 6000) : undefined;
     return () => {
       controller.abort();
       if (timer) window.clearInterval(timer);
     };
-  }, [page, section]);
+  }, [dashboardPage, showDashboard]);
 
   useEffect(() => {
     if (!dashboard) return;
@@ -120,7 +128,7 @@ export function App() {
 
   return (
     <div class="shell">
-      <Header dashboard={section === 'explorer' ? dashboard : null} onNavigate={navigate} />
+      <Header dashboard={showDashboard ? dashboard : null} onNavigate={navigate} />
       <nav class="site-navigation" aria-label="Main navigation">
         {SITE_PAGES.map((item) => (
           <ExplorerLink
@@ -140,10 +148,12 @@ export function App() {
           <TutorialPage />
         ) : (
           <>
-            <PoolLegend />
+            {section === 'explorer' && <PoolLegend />}
             {error && dashboard && <div class="stale-banner" role="status">Live refresh paused · {error}</div>}
             {!dashboard ? (
               loading ? <LoadingScreen /> : <ConnectionError message={error ?? 'Unable to reach Tachyscan'} />
+            ) : section === 'pool-info' ? (
+              <PoolInfoPage dashboard={dashboard} pulse={animateStream ? arrivalHeight : null} onNavigate={navigate} />
             ) : blockId !== null ? (
               <BlockPage key={blockId} id={blockId} network={dashboard.network} onNavigate={navigate} />
             ) : (
@@ -166,7 +176,7 @@ export function App() {
       </main>
       <footer>
         <span>Tachyscan</span>
-        {section === 'explorer' && dashboard && <>
+        {showDashboard && dashboard && <>
           <span class="footer-dot">◆</span>
           <span>{dashboard.network}</span>
           <span class={`live-dot ${dashboard.index.phase}`} />
@@ -178,23 +188,35 @@ export function App() {
 }
 
 function Header({ dashboard, onNavigate }: { dashboard: Dashboard | null; onNavigate: (path: string) => void }) {
+  const epoch = dashboard ? epochProgress(dashboard.height, dashboard.activationHeight, dashboard.epochLength) : null;
   return (
     <header>
       <div>
         <p class="eyebrow">TACHYON NETWORK OBSERVATORY</p>
         <h1><ExplorerLink class="brand-link" href="/" onNavigate={onNavigate}>Tachy<span>scan</span><i aria-hidden="true">✦</i></ExplorerLink></h1>
       </div>
-      {dashboard && <div class="tip-stats">
-        <ExplorerLink class="tip-block-link" href={blockPath(dashboard.bestBlockHash)} onNavigate={onNavigate}>
-          <Stat label="Block" value={dashboard.height.toLocaleString()} />
-        </ExplorerLink>
-        <div class="stat-rule" />
-        <Stat
-          label="Accumulator value"
-          value={dashboard.accumulator ? shortHash(dashboard.accumulator, 12, 8) : 'indexing…'}
-          title={dashboard.accumulator ?? undefined}
-        />
-      </div>}
+      <div class="header-side">
+        <Search onNavigate={onNavigate} />
+        {dashboard && <div class="tip-stats">
+          <ExplorerLink class="tip-block-link" href={blockPath(dashboard.bestBlockHash)} onNavigate={onNavigate}>
+            <Stat label="Block" value={dashboard.height.toLocaleString()} />
+          </ExplorerLink>
+          <div class="stat-rule" />
+          <Stat label="Epoch" value={epoch ? `${epoch.epoch.toLocaleString()} (${Math.floor(epoch.fraction * 100)}% in)` : 'inactive'} />
+          <div class="stat-rule" />
+          {typeof dashboard.tachyonPoolZat === 'number' && <>
+            <Stat label="Tachyon pool" value={`${(dashboard.tachyonPoolZat / 100_000_000).toLocaleString(undefined, { maximumFractionDigits: 4 })} ZEC`} title={formatZec(dashboard.tachyonPoolZat).replace(/^\+/, '')} />
+            <div class="stat-rule" />
+          </>}
+          <div class="stat accumulator-stat">
+            <span>Accumulator value</span>
+            <strong title={dashboard.accumulator ?? undefined}>
+              {dashboard.accumulator && <HashGlyph hash={dashboard.accumulator} size={18} />}
+              {dashboard.accumulator ? shortHash(dashboard.accumulator, 12, 8) : 'indexing…'}
+            </strong>
+          </div>
+        </div>}
+      </div>
     </header>
   );
 }
@@ -227,7 +249,7 @@ function PoolLegend() {
   return (
     <section class="legend" aria-label="Transaction type key">
       <p class="section-kicker">TRANSACTION TYPE KEY</p>
-      <div>{POOL_TYPES.map((pool) => <span key={pool.key}><b>{pool.emoji}</b>{pool.label}</span>)}</div>
+      <div>{POOL_TYPES.map((pool) => <span key={pool.key}><PoolMark pool={pool.key} size={16} />{pool.label}</span>)}</div>
     </section>
   );
 }
@@ -266,7 +288,9 @@ function TransactionPanel({
           <h2>
             {txid !== null
               ? shortHash(txid, 18, 10)
-              : <>Next block in <span>{durationUntil(dashboard.nextBlockEstimate, now)}</span></>}
+              : dashboard.nextBlockEstimate && dashboard.nextBlockEstimate > now
+                ? <>Next block in <span>{durationUntil(dashboard.nextBlockEstimate, now)}</span></>
+                : <>Waiting for the next block</>}
           </h2>
         </div>
         <div class="stream-controls">
@@ -331,7 +355,8 @@ function BlockGroup({
         <span>BLOCK <b>{block.height.toLocaleString()}</b></span>
         <span>{block.transactions.length} TX</span>
         <span>{Math.max(1, tip - block.height + 1)} CONF</span>
-        <span title={block.hash}>{shortHash(block.hash, 8, 6)}</span>
+        <StampMarks transactions={block.transactions} />
+        <span title={block.hash}><HashGlyph hash={block.hash} size={12} />{shortHash(block.hash, 8, 6)}</span>
       </ExplorerLink>
       {block.transactions.map((transaction, index) => (
         <TransactionRow
@@ -395,15 +420,20 @@ function TransactionDetails({ transaction }: { transaction: Transaction }) {
         <Detail label="Pools" value={pools.join(' · ') || 'none'} />
         {transaction.tachyon && <Detail label="Tachyon actions" value={String(transaction.tachyon.actions?.length ?? 0)} />}
         {transaction.tachyon?.stamp?.type && <Detail label="Stamp" value={transaction.tachyon.stamp.type} />}
-        {transaction.tachyon?.stamp?.anchor && <Detail label="Anchor" value={shortHash(transaction.tachyon.stamp.anchor, 10, 7)} title={transaction.tachyon.stamp.anchor} />}
+        {transaction.tachyon?.stamp?.anchor && <Detail label="Anchor" value={shortHash(transaction.tachyon.stamp.anchor, 10, 7)} title={transaction.tachyon.stamp.anchor} glyph={transaction.tachyon.stamp.anchor} />}
+        {transaction.tachyon?.stamp?.coverage && <Detail label="Coverage digest" value={shortHash(transaction.tachyon.stamp.coverage, 10, 7)} title={transaction.tachyon.stamp.coverage} glyph={transaction.tachyon.stamp.coverage} />}
+        {transaction.tachyon?.stamp?.tachygramSet && <Detail label="Tachygram set" value={shortHash(transaction.tachyon.stamp.tachygramSet, 10, 7)} title={transaction.tachyon.stamp.tachygramSet} glyph={transaction.tachyon.stamp.tachygramSet} />}
+        {transaction.tachyon?.stamp?.aggregateId && <Detail label="Aggregate" value={shortHash(transaction.tachyon.stamp.aggregateId, 10, 7)} title={transaction.tachyon.stamp.aggregateId} glyph={transaction.tachyon.stamp.aggregateId} />}
+        {transaction.tachyon?.stamp?.proof && <Detail label="Proof size" value={formatBytes(transaction.tachyon.stamp.proof.length / 2)} />}
+        {transaction.tachyon?.stamp?.tachygrams && <Detail label="Tachygrams" value={String(transaction.tachyon.stamp.tachygrams.length)} />}
       </div>
       <JsonViewer key={transaction.txid} value={transaction} />
     </div>
   );
 }
 
-function Detail({ label, value, title }: { label: string; value: string; title?: string }) {
-  return <div><span>{label}</span><b title={title}>{value}</b></div>;
+function Detail({ label, value, title, glyph }: { label: string; value: string; title?: string; glyph?: string }) {
+  return <div><span>{label}</span><b title={title}>{glyph && <HashGlyph hash={glyph} size={12} />}{value}</b></div>;
 }
 
 function Pagination({ page, pages, onPage }: { page: number; pages: number; onPage: (page: number) => void }) {
