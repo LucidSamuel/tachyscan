@@ -27,11 +27,16 @@ let host: HTMLDivElement;
 let fetchMock: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
+  sessionStorage.clear();
   window.history.replaceState(null, '', '/');
   host = document.createElement('div');
   document.body.append(host);
   vi.stubGlobal('matchMedia', () => ({ matches: true }));
   fetchMock = vi.fn(async (url: string) => {
+    if (url === '/api/faucet/status') return { ok: true, json: async () => ({
+      amount_zat: 1000000, cooldown_seconds: 300, server_time_ms: Date.now(),
+      remaining_ms: 0, accepting: false, reason: 'syncing',
+    }) };
     if (url.startsWith('/api/dashboard')) return { ok: true, json: async () => dashboard };
     if (url.startsWith('/api/blocks/')) return { ok: true, json: async () => block };
     if (url.startsWith('/api/transactions/')) return {
@@ -63,6 +68,105 @@ async function mount(view: VNode) {
 async function click(path: string) {
   await act(async () => { link(path).click(); });
 }
+
+describe('site navigation', () => {
+  it('moves between all four pages and restores Explorer for detail routes', async () => {
+    await mount(<App />);
+    const current = () => host.querySelector('nav[aria-label="Main navigation"] [aria-current="page"]')?.textContent;
+    expect(current()).toBe('Explorer');
+    expect(host.querySelector('[aria-label="Transaction type key"]')).not.toBeNull();
+    expect(host.querySelector('.tachygram-vault, .chart-frame')).toBeNull();
+
+    await click('/pool-info');
+    expect(current()).toBe('Pool info');
+    expect(document.title).toBe('Pool info · Tachyscan');
+    expect(host.querySelector('.epoch-panel')).not.toBeNull();
+    expect(host.querySelector('.activity-strip')).not.toBeNull();
+    expect(host.querySelector('.recent-tachygrams')).not.toBeNull();
+    expect(host.querySelector('.chart-frame')).not.toBeNull();
+    expect(host.querySelector('.transactions-panel')).toBeNull();
+    await click('/');
+    expect(host.querySelector('.epoch-panel, .chart-frame')).toBeNull();
+    expect(host.querySelector('.pool-chip.tachyon .pool-mark')).not.toBeNull();
+
+    await click('/faucet');
+    expect(window.location.pathname).toBe('/faucet');
+    expect(current()).toBe('Faucet');
+    expect(host.textContent).toContain('YOUR IP COOLDOWN');
+    await click('/tutorial');
+    expect(current()).toBe('Tutorial');
+    expect(document.title).toBe('Tutorial · Tachyscan');
+
+    // Back/Forward must restore the page and the active navigation item together.
+    await act(async () => {
+      window.history.replaceState(null, '', '/faucet');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    });
+    expect(current()).toBe('Faucet');
+    await click('/');
+    await click(`/block/${hash}`);
+    expect(current()).toBe('Explorer');
+    await vi.waitFor(() => expect(host.querySelector(`a[href="/tx/${txid}"]`)).not.toBeNull());
+    await click(`/tx/${txid}`);
+    expect(current()).toBe('Explorer');
+  });
+
+  it.each(['/pool-info', '/pool-info/'])('opens the pool page directly at %s', async (path) => {
+    window.history.replaceState(null, '', path);
+    await mount(<App />);
+    expect(host.querySelector('#pool-info-heading')?.textContent).toBe('Pool info');
+    expect(host.querySelector('nav[aria-label="Main navigation"] [aria-current="page"]')?.getAttribute('href')).toBe('/pool-info');
+    await act(async () => {
+      window.history.replaceState(null, '', '/');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    });
+    expect(host.querySelector('.epoch-panel')).toBeNull();
+    await act(async () => {
+      window.history.replaceState(null, '', path);
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    });
+    expect(host.querySelector('.epoch-panel')).not.toBeNull();
+  });
+
+  it('polls the latest pool data even after browsing older explorer pages', async () => {
+    vi.useFakeTimers();
+    try {
+      await mount(<App />);
+      const pageTwo = [...host.querySelectorAll<HTMLButtonElement>('.pagination button')].find((button) => button.textContent === '2')!;
+      await act(async () => pageTwo.click());
+      expect(fetchMock).toHaveBeenLastCalledWith('/api/dashboard?page=2&limit=8', expect.anything());
+      await click('/pool-info');
+      expect(fetchMock).toHaveBeenLastCalledWith('/api/dashboard?page=1&limit=8', expect.anything());
+      fetchMock.mockClear();
+      await act(async () => vi.advanceTimersByTimeAsync(6000));
+      expect(fetchMock).toHaveBeenCalledWith('/api/dashboard?page=1&limit=8', expect.anything());
+      await click('/tutorial');
+      fetchMock.mockClear();
+      await act(async () => vi.advanceTimersByTimeAsync(6000));
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each(['/faucet', '/faucet/', '/tutorial', '/tutorial/'])('opens %s without waiting for RPC', async (path) => {
+    window.history.replaceState(null, '', path);
+    fetchMock.mockRejectedValue(new Error('Node offline'));
+    await mount(<App />);
+    expect(host.textContent).toContain(path.startsWith('/faucet') ? 'YOUR IP COOLDOWN' : 'TACHYON ALPHA TESTNET');
+    expect(fetchMock.mock.calls.some(([url]) => url.startsWith('/api/dashboard'))).toBe(false);
+    expect(host.querySelector('nav[aria-label="Main navigation"] [aria-current="page"]')?.getAttribute('href')).toBe(path.replace(/\/$/, ''));
+  });
+
+  it('keeps navigation available when the explorer connection fails', async () => {
+    fetchMock.mockRejectedValue(new Error('Node offline'));
+    await mount(<App />);
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain('Node offline');
+    await click('/tutorial');
+    expect(link('https://github.com/S1nus/zcash-devtool/tree/c/tachyon-zakura#readme').textContent).toContain('Read the guide on GitHub');
+    expect(host.querySelector('[role="alert"]')).toBeNull();
+  });
+});
 
 describe('block pages', () => {
   it('links block headers and the tip, then navigates from a block to its transactions', async () => {

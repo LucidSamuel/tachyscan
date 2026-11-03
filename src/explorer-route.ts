@@ -1,6 +1,16 @@
 import { useEffect, useState } from 'preact/hooks';
 import { transactionIdFromPath } from './transaction-route';
 
+export type SitePage = 'explorer' | 'pool-info' | 'faucet' | 'tutorial';
+
+export function pageFromPath(pathname: string): SitePage {
+  const path = pathname.replace(/\/$/, '');
+  if (path === '/pool-info') return 'pool-info';
+  if (path === '/faucet') return 'faucet';
+  if (path === '/tutorial') return 'tutorial';
+  return 'explorer';
+}
+
 export function isBlockId(value: string): boolean {
   return /^[0-9a-f]{64}$/i.test(value)
     || (/^(0|[1-9][0-9]{0,9})$/.test(value) && Number(value) <= 0xffff_ffff);
@@ -31,5 +41,10 @@ export function useExplorerRoute() {
     setPathname(path);
   };
 
-  return { txid: transactionIdFromPath(pathname), blockId: blockIdFromPath(pathname), navigate };
+  return {
+    section: pageFromPath(pathname),
+    txid: transactionIdFromPath(pathname),
+    blockId: blockIdFromPath(pathname),
+    navigate,
+  };
 }

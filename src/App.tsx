@@ -6,13 +6,21 @@ import { ExplorerLink } from './ExplorerLink';
 import { BlockPage } from './BlockPage';
 import { TransactionRow, TransactionSummary } from './TransactionRow';
 import { JsonViewer } from './JsonViewer';
-import { EpochPanel } from './EpochPanel';
+import { PoolInfoPage } from './PoolInfoPage';
 import { Search } from './Search';
 import { HashGlyph } from './HashGlyph';
 import { StampMarks } from './StampView';
-import { durationUntil, epochProgress, formatBytes, formatZec, shortHash, transactionPools } from './lib';
+import { PoolMark } from './PoolMark';
+import { FaucetPage } from './FaucetPage';
+import { POOL_TYPES, durationUntil, epochProgress, formatBytes, formatZec, shortHash, transactionPools } from './lib';
 
 const PAGE_SIZE = 8;
+const SITE_PAGES = [
+  { id: 'explorer', label: 'Explorer', href: '/' },
+  { id: 'pool-info', label: 'Pool info', href: '/pool-info' },
+  { id: 'faucet', label: 'Faucet', href: '/faucet' },
+  { id: 'tutorial', label: 'Tutorial', href: '/tutorial' },
+] as const;
 
 function useClock() {
   const [now, setNow] = useState(Date.now());
@@ -36,13 +44,19 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [selection, setSelection] = useState<TransactionSelection | null>(null);
-  const { txid, blockId, navigate } = useExplorerRoute();
+  const { txid, blockId, section, navigate } = useExplorerRoute();
+  const showDashboard = section === 'explorer' || section === 'pool-info';
+  const dashboardPage = section === 'pool-info' ? 1 : page;
   const [transactionError, setTransactionError] = useState<string | null>(null);
   const [animateStream, setAnimateStream] = useState(
     () => localStorage.getItem('tachyscan-stream-motion') !== 'off',
   );
   const [arrivalHeight, setArrivalHeight] = useState<number | null>(null);
   const previousHeight = useRef<number | null>(null);
+
+  useEffect(() => {
+    document.title = `${SITE_PAGES.find((item) => item.id === section)!.label} · Tachyscan`;
+  }, [section]);
 
   useEffect(() => {
     setSelection(null);
@@ -69,25 +83,28 @@ export function App() {
   }, [txid]);
 
   useEffect(() => {
+    if (!showDashboard) return;
     const controller = new AbortController();
+    setLoading(true);
     const refresh = async () => {
       try {
-        const next = await loadDashboard(page, controller.signal);
+        const next = await loadDashboard(dashboardPage, controller.signal);
+        if (controller.signal.aborted) return;
         setDashboard(next);
         setError(null);
       } catch (cause) {
-        if ((cause as Error).name !== 'AbortError') setError((cause as Error).message);
+        if (!controller.signal.aborted) setError((cause as Error).message);
       } finally {
-        setLoading(false);
+        if (!controller.signal.aborted) setLoading(false);
       }
     };
     void refresh();
-    const timer = page === 1 ? window.setInterval(refresh, 6000) : undefined;
+    const timer = dashboardPage === 1 ? window.setInterval(refresh, 6000) : undefined;
     return () => {
       controller.abort();
       if (timer) window.clearInterval(timer);
     };
-  }, [page]);
+  }, [dashboardPage, showDashboard]);
 
   useEffect(() => {
     if (!dashboard) return;
@@ -101,9 +118,6 @@ export function App() {
     previousHeight.current = dashboard.height;
   }, [dashboard?.height, animateStream]);
 
-  if (!dashboard && loading) return <LoadingScreen />;
-  if (!dashboard) return <ConnectionError message={error ?? 'Unable to reach Tachyscan'} />;
-
   const toggleStreamAnimation = () => {
     setAnimateStream((enabled) => {
       const next = !enabled;
@@ -113,51 +127,77 @@ export function App() {
   };
 
   return (
-    <main class="shell">
-      <Header dashboard={dashboard} onNavigate={navigate} />
-      {error && <div class="stale-banner">Live refresh paused · {error}</div>}
-      <div class="dashboard-grid">
-        <TachyonPanel dashboard={dashboard} pulse={animateStream ? arrivalHeight : null} onNavigate={navigate} />
-        {blockId !== null ? (
-          <BlockPage key={blockId} id={blockId} network={dashboard.network} onNavigate={navigate} />
-        ) : (
-          <TransactionPanel
-            dashboard={dashboard}
-            onPage={setPage}
-            selection={selection}
-            txid={txid}
-            transactionError={transactionError}
-            onSelect={(selected) => navigate(transactionPath(selected.transaction.txid))}
-            onBack={() => navigate('/')}
+    <div class="shell">
+      <Header dashboard={showDashboard ? dashboard : null} onNavigate={navigate} />
+      <nav class="site-navigation" aria-label="Main navigation">
+        {SITE_PAGES.map((item) => (
+          <ExplorerLink
+            key={item.id}
+            href={item.href}
             onNavigate={navigate}
-            animateStream={animateStream}
-            arrivalHeight={arrivalHeight}
-            onToggleAnimation={toggleStreamAnimation}
-          />
+            aria-current={section === item.id ? 'page' : undefined}
+          >
+            {item.label}
+          </ExplorerLink>
+        ))}
+      </nav>
+      <main class="page-content">
+        {section === 'faucet' ? (
+          <FaucetPage onNavigate={navigate} />
+        ) : section === 'tutorial' ? (
+          <TutorialPage />
+        ) : (
+          <>
+            {section === 'explorer' && <PoolLegend />}
+            {error && dashboard && <div class="stale-banner" role="status">Live refresh paused · {error}</div>}
+            {!dashboard ? (
+              loading ? <LoadingScreen /> : <ConnectionError message={error ?? 'Unable to reach Tachyscan'} />
+            ) : section === 'pool-info' ? (
+              <PoolInfoPage dashboard={dashboard} pulse={animateStream ? arrivalHeight : null} onNavigate={navigate} />
+            ) : blockId !== null ? (
+              <BlockPage key={blockId} id={blockId} network={dashboard.network} onNavigate={navigate} />
+            ) : (
+              <TransactionPanel
+                dashboard={dashboard}
+                onPage={setPage}
+                selection={selection}
+                txid={txid}
+                transactionError={transactionError}
+                onSelect={(selected) => navigate(transactionPath(selected.transaction.txid))}
+                onBack={() => navigate('/')}
+                onNavigate={navigate}
+                animateStream={animateStream}
+                arrivalHeight={arrivalHeight}
+                onToggleAnimation={toggleStreamAnimation}
+              />
+            )}
+          </>
         )}
-      </div>
+      </main>
       <footer>
         <span>Tachyscan</span>
-        <span class="footer-dot">◆</span>
-        <span>{dashboard.network}</span>
-        <span class={`live-dot ${dashboard.index.phase}`} />
-        <span>{dashboard.index.phase === 'ready' ? 'index caught up' : dashboard.index.phase}</span>
+        {showDashboard && dashboard && <>
+          <span class="footer-dot">◆</span>
+          <span>{dashboard.network}</span>
+          <span class={`live-dot ${dashboard.index.phase}`} />
+          <span>{dashboard.index.phase === 'ready' ? 'index caught up' : dashboard.index.phase}</span>
+        </>}
       </footer>
-    </main>
+    </div>
   );
 }
 
-function Header({ dashboard, onNavigate }: { dashboard: Dashboard; onNavigate: (path: string) => void }) {
-  const epoch = epochProgress(dashboard.height, dashboard.activationHeight, dashboard.epochLength);
+function Header({ dashboard, onNavigate }: { dashboard: Dashboard | null; onNavigate: (path: string) => void }) {
+  const epoch = dashboard ? epochProgress(dashboard.height, dashboard.activationHeight, dashboard.epochLength) : null;
   return (
     <header>
       <div>
         <p class="eyebrow">TACHYON NETWORK OBSERVATORY</p>
-        <h1>Tachy<span>scan</span><i>✦</i></h1>
+        <h1><ExplorerLink class="brand-link" href="/" onNavigate={onNavigate}>Tachy<span>scan</span><i aria-hidden="true">✦</i></ExplorerLink></h1>
       </div>
       <div class="header-side">
         <Search onNavigate={onNavigate} />
-        <div class="tip-stats">
+        {dashboard && <div class="tip-stats">
           <ExplorerLink class="tip-block-link" href={blockPath(dashboard.bestBlockHash)} onNavigate={onNavigate}>
             <Stat label="Block" value={dashboard.height.toLocaleString()} />
           </ExplorerLink>
@@ -175,7 +215,7 @@ function Header({ dashboard, onNavigate }: { dashboard: Dashboard; onNavigate: (
               {dashboard.accumulator ? shortHash(dashboard.accumulator, 12, 8) : 'indexing…'}
             </strong>
           </div>
-        </div>
+        </div>}
       </div>
     </header>
   );
@@ -185,86 +225,32 @@ function Stat({ label, value, title }: { label: string; value: string; title?: s
   return <div class="stat"><span>{label}</span><strong title={title}>{value}</strong></div>;
 }
 
-function TachyonPanel({ dashboard, pulse, onNavigate }: {
-  dashboard: Dashboard;
-  pulse: number | null;
-  onNavigate: (path: string) => void;
-}) {
-  const now = useClock();
+function TutorialPage() {
   return (
-    <aside class="tachyon-panel">
-      <EpochPanel dashboard={dashboard} now={now} pulse={pulse} onNavigate={onNavigate} />
-      <section class="footprint-section">
-        <p class="section-kicker">TACHYGRAM PAYLOAD FOOTPRINT</p>
-        <h2>{formatBytes(dashboard.footprintBytes)}</h2>
-        <FootprintChart dashboard={dashboard} />
-      </section>
-    </aside>
+    <section class="panel tutorial-page" aria-labelledby="page-heading">
+      <span class="page-mark" aria-hidden="true">✦</span>
+      <p class="section-kicker">TACHYON ALPHA TESTNET</p>
+      <h2 id="page-heading">Tutorial</h2>
+      <p class="page-description">
+        Create a wallet. Try Tachyon.
+      </p>
+      <p class="page-note">
+        Follow the guide in the zcash-devtool README to set up your wallet,
+        receive test funds, and send Tachyon payments.
+      </p>
+      <a class="back-button" href="https://github.com/S1nus/zcash-devtool/tree/c/tachyon-zakura#readme" target="_blank" rel="noopener noreferrer">
+        Read the guide on GitHub ↗
+      </a>
+    </section>
   );
 }
 
-function FootprintChart({ dashboard }: { dashboard: Dashboard }) {
-  const points = dashboard.footprintHistory;
-  const [hover, setHover] = useState<number | null>(null);
-  const width = 620;
-  const height = 270;
-  const inset = 22;
-  const minHeight = points[0]?.height ?? dashboard.activationHeight;
-  const maxHeight = points.at(-1)?.height ?? dashboard.height;
-  const maxBytes = Math.max(32, ...points.map((point) => point.bytes));
-  const x = (block: number) => inset + ((block - minHeight) / Math.max(1, maxHeight - minHeight)) * (width - inset * 2);
-  const y = (bytes: number) => height - inset - (bytes / maxBytes) * (height - inset * 2);
-  const path = points.map((point, index) => `${index ? 'L' : 'M'} ${x(point.height)} ${y(point.bytes)}`).join(' ');
-  const firstBoundary = dashboard.activationHeight + Math.ceil((minHeight - dashboard.activationHeight) / dashboard.epochLength) * dashboard.epochLength;
-  const boundaries: number[] = [];
-  for (let boundary = firstBoundary; boundary <= maxHeight; boundary += dashboard.epochLength) boundaries.push(boundary);
-
-  const locate = (event: PointerEvent) => {
-    if (!points.length) return;
-    const svg = event.currentTarget as SVGSVGElement;
-    const box = svg.getBoundingClientRect();
-    const block = minHeight + ((event.clientX - box.left) / box.width * width - inset) / (width - inset * 2) * (maxHeight - minHeight);
-    let nearest = 0;
-    for (let index = 1; index < points.length; index += 1) {
-      if (Math.abs(points[index].height - block) < Math.abs(points[nearest].height - block)) nearest = index;
-    }
-    setHover(nearest);
-  };
-  const focus = hover === null ? null : points[hover];
-
+function PoolLegend() {
   return (
-    <div class="chart-frame">
-      <svg
-        viewBox={`0 0 ${width} ${height}`}
-        role="img"
-        aria-label="Tachygram payload footprint over block height"
-        onPointerMove={locate}
-        onPointerLeave={() => setHover(null)}
-      >
-        <line class="axis" x1={inset} x2={inset} y1={inset} y2={height - inset} />
-        <line class="axis" x1={inset} x2={width - inset} y1={height - inset} y2={height - inset} />
-        {boundaries.map((boundary) => <line class="epoch-line" x1={x(boundary)} x2={x(boundary)} y1={inset} y2={height - inset} />)}
-        {path && <path class="footprint-line" d={path} />}
-        {points.filter((_, index) => index % Math.max(1, Math.floor(points.length / 22)) === 0).map((point) => (
-          <circle class="footprint-point" cx={x(point.height)} cy={y(point.bytes)} r="3.6" />
-        ))}
-        {focus && <>
-          <line class="chart-cursor" x1={x(focus.height)} x2={x(focus.height)} y1={inset} y2={height - inset} />
-          <circle class="chart-cursor-point" cx={x(focus.height)} cy={y(focus.bytes)} r="5" />
-        </>}
-      </svg>
-      <div class="chart-caption">
-        {focus
-          ? <><span>BLOCK {focus.height.toLocaleString()}</span><span class="chart-readout">{formatBytes(focus.bytes)} retained</span><span>{maxHeight.toLocaleString()}</span></>
-          : <><span>BLOCK {minHeight.toLocaleString()}</span><span>{boundaries.length ? 'epoch boundary ┊' : ''}</span><span>{maxHeight.toLocaleString()}</span></>}
-      </div>
-      {dashboard.index.phase === 'syncing' && (
-        <div class="index-progress">
-          <span style={{ width: `${Math.max(2, ((dashboard.index.scannedHeight ?? dashboard.activationHeight) - dashboard.activationHeight) / Math.max(1, dashboard.index.targetHeight - dashboard.activationHeight) * 100)}%` }} />
-          <b>Reconstructing accumulator · {dashboard.index.scannedHeight?.toLocaleString() ?? 'starting'} / {dashboard.index.targetHeight.toLocaleString()}</b>
-        </div>
-      )}
-    </div>
+    <section class="legend" aria-label="Transaction type key">
+      <p class="section-kicker">TRANSACTION TYPE KEY</p>
+      <div>{POOL_TYPES.map((pool) => <span key={pool.key}><PoolMark pool={pool.key} size={16} />{pool.label}</span>)}</div>
+    </section>
   );
 }
 
@@ -313,6 +299,7 @@ function TransactionPanel({
             <input
               type="checkbox"
               role="switch"
+              aria-label="Auto-scroll"
               checked={animateStream}
               onChange={onToggleAnimation}
             />
@@ -464,9 +451,9 @@ function Pagination({ page, pages, onPage }: { page: number; pages: number; onPa
 }
 
 function LoadingScreen() {
-  return <div class="full-screen"><div class="loader-orbit">✦</div><h1>Tachy<span>scan</span></h1><p>Finding the tip of spacetime…</p></div>;
+  return <div class="panel connection-state" role="status"><div class="loader-orbit" aria-hidden="true">✦</div><p>Finding the tip of spacetime…</p></div>;
 }
 
 function ConnectionError({ message }: { message: string }) {
-  return <div class="full-screen error-screen"><b>CONNECTION INTERRUPTED</b><h1>Tachy<span>scan</span></h1><p>{message}</p><button onClick={() => location.reload()}>Try again</button></div>;
+  return <div class="panel connection-state error-screen" role="alert"><b>CONNECTION INTERRUPTED</b><p>{message}</p><button onClick={() => location.reload()}>Try again</button></div>;
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { blockIdFromPath, blockPath, isBlockId } from './explorer-route';
+import { blockIdFromPath, blockPath, isBlockId, pageFromPath } from './explorer-route';
 
 describe('block permalinks', () => {
   const hash = 'ab'.repeat(32);
@@ -23,5 +23,13 @@ describe('block permalinks', () => {
   it('does not confuse transactions or the stream with blocks', () => {
     expect(blockIdFromPath('/')).toBeNull();
     expect(blockIdFromPath(`/tx/${hash}`)).toBeNull();
+  });
+});
+
+
+describe('pool info routes', () => {
+  it.each(['/pool-info', '/pool-info/'])('selects Pool info for %s', (path) => {
+    expect(pageFromPath(path)).toBe('pool-info');
+    expect(blockIdFromPath(path)).toBeNull();
   });
 });

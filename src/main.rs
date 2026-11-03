@@ -412,7 +412,31 @@ fn app_router(state: AppState, assets_dir: &str) -> Router {
             "/tx/{txid}",
             tower_http::services::ServeFile::new(index.clone()),
         )
-        .route_service("/tx/{txid}/", tower_http::services::ServeFile::new(index))
+        .route_service(
+            "/tx/{txid}/",
+            tower_http::services::ServeFile::new(index.clone()),
+        )
+        .route_service(
+            "/faucet",
+            tower_http::services::ServeFile::new(index.clone()),
+        )
+        .route_service(
+            "/faucet/",
+            tower_http::services::ServeFile::new(index.clone()),
+        )
+        .route_service(
+            "/tutorial",
+            tower_http::services::ServeFile::new(index.clone()),
+        )
+        .route_service(
+            "/pool-info",
+            tower_http::services::ServeFile::new(index.clone()),
+        )
+        .route_service(
+            "/pool-info/",
+            tower_http::services::ServeFile::new(index.clone()),
+        )
+        .route_service("/tutorial/", tower_http::services::ServeFile::new(index))
         .fallback_service(ServeDir::new(assets_dir).append_index_html_on_directories(true))
         .layer(TraceLayer::new_for_http())
         .with_state(state)

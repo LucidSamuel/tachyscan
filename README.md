@@ -1,5 +1,13 @@
 # Tachyscan
 
+The faucet now solves an Equihash(96,5) puzzle in a browser Worker before
+requesting a new payment. Its gold-to-teal activity bar shows elapsed time and
+search activity, supports cancellation, and respects reduced-motion settings.
+Deploy the matching `tachyon-faucet` service alongside this frontend. Configure
+`pow_difficulty_bits` (default 7) and `pow_challenge_seconds` (default 600) in the
+faucet service; no Zakura changes or database reset are needed. Existing private
+claim recovery and note downloads do not require another puzzle.
+
 A Tachyon-flavored block explorer for a NuTachyon-enabled Zakura node. The UI is Preact; a small Rust backend keeps RPC credentials server-side and reads authoritative live Tachyon state from Zakura's `gettachyoninfo` RPC.
 
 ## Run it
@@ -14,9 +22,23 @@ ZAKURA_RPC_URL=http://127.0.0.1:8232 \
   cargo run --release
 ```
 
-Open <http://127.0.0.1:4141>. Tachyscan prefers the node's authoritative accumulator and retained Tachygram summary when `gettachyoninfo` is available. It also maintains `.tachyscan/index.json` from canonical verbose blocks for the historical footprint chart and as a fallback for nodes without PR #983. Recent transactions are usable while that backfill runs.
+Open <http://127.0.0.1:4141>. Tachyscan prefers the node's authoritative accumulator when `gettachyoninfo` is available. It also maintains `.tachyscan/index.json` from canonical verbose blocks as a fallback for nodes without PR #983. Recent transactions are usable while that backfill runs.
 
-Click a transaction (or its linked Tachygram brick) to open `/tx/<full-64-character-txid>`.
+The Pool info page contains the epoch ring and pruning countdown, tachygram activity,
+retained tachygrams, and the footprint chart. The explorer keeps its transaction stream,
+pixel-art pool chips, search, and proof/pointer stamp summaries.
+
+The navigation bar links **Explorer** (`/`), **Pool info** (`/pool-info`), **Faucet** (`/faucet`), and
+**Tutorial** (`/tutorial`). Faucet connects to the separate `tachyon-faucet`
+service; Tutorial links to the Tachyon guide in the
+[zcash-devtool README](https://github.com/S1nus/zcash-devtool/tree/c/tachyon-zakura#readme).
+Both pages can open independently of
+the explorer's node connection. The explorer keeps
+the transaction type key above its stream; block and transaction detail pages
+remain under Explorer. Forward `/pool-info`, `/faucet`, and `/tutorial` to Tachyscan as well,
+or configure an `index.html` fallback if serving `dist/` separately.
+
+Click a transaction to open `/tx/<full-64-character-txid>`.
 These URLs can be copied, bookmarked, opened in a new tab, or refreshed: transaction
 details are fetched from Zakura by ID even when the block is no longer on the live
 stream's current page. Browser Back/Forward navigates between views. A reverse
@@ -44,6 +66,26 @@ npm run dev
 
 Vite serves the UI at <http://127.0.0.1:5173> and proxies `/api` to the backend.
 
+## Faucet
+
+Run the Python service from the sibling `tachyon-faucet` repository on
+`127.0.0.1:4142`. Its README includes wallet setup, systemd, and nginx examples.
+In production, proxy `/api/faucet/` to that service while keeping other `/api/`
+requests on Tachyscan's Rust backend. Vite already has both routes configured;
+add `http://127.0.0.1:5173` to the faucet's `allowed_origins` and set
+`trusted_proxy_ips = []` for development. In production, configure nginx to
+overwrite `X-Real-IP` with `$remote_addr` and set the faucet's `trusted_proxy_ips`
+to the nginx peer addresses (usually `127.0.0.1` and `::1`). See its README.
+
+The page accepts a Tachyon payment key, displays the requesting IP's cooldown,
+and downloads the recipient's note JSON. Amount and cooldown are configured on
+the service, not in the frontend. Defaults are 0.01 testnet ZEC and five minutes
+per IP, plus an Equihash proof for each new claim. Visitors sharing a public IP
+share that cooldown. The wallet continues to process one payment at a time.
+The same-tab claim survives refreshes via a private session-storage token;
+download the receipt before closing the tab. No wallet keys or RPC credentials
+belong in the frontend. Without the service, claiming stays disabled.
+
 ## Configuration
 
 | Variable | Default | Purpose |
@@ -55,5 +97,3 @@ Vite serves the UI at <http://127.0.0.1:5173> and proxies `/api` to the backend.
 | `TACHYSCAN_DATA_DIR` | `.tachyscan` | Persistent accumulator index |
 | `TACHYSCAN_EPOCH_LENGTH` | `4096` | Override only for a Tachyon build using `test-epoch-size` |
 | `RUST_LOG` | `tachyscan_server=info` | Backend logging filter |
-
-The displayed footprint is the logical 32-byte payload size of the currently retained Tachygrams, rather than RocksDB's engine-dependent on-disk allocation.

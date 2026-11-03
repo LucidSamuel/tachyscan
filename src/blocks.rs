@@ -233,6 +233,23 @@ mod tests {
             .contains("Block not found"));
         rpc_server.abort();
         let _ = rpc_server.await;
+        // These pages must be refreshable even while the node is offline.
+        for path in [
+            "/faucet",
+            "/faucet/",
+            "/tutorial",
+            "/tutorial/",
+            "/pool-info",
+            "/pool-info/",
+        ] {
+            let response = client.get(format!("{url}{path}")).send().await.unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            assert!(response
+                .text()
+                .await
+                .unwrap()
+                .contains("<div id=\"app\"></div>"));
+        }
         let response = client
             .get(format!("{url}/api/blocks/12"))
             .send()
