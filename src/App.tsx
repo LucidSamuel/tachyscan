@@ -238,7 +238,7 @@ function TutorialPage() {
         Follow the guide in the zcash-devtool README to set up your wallet,
         receive test funds, and send Tachyon payments.
       </p>
-      <a class="back-button" href="https://github.com/S1nus/zcash-devtool/tree/c/tachyon-zakura#readme" target="_blank" rel="noopener noreferrer">
+      <a class="back-button" href="https://github.com/tachyon-zcash/zcash-devtool#readme" target="_blank" rel="noopener noreferrer">
         Read the guide on GitHub ↗
       </a>
     </section>
