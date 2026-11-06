@@ -130,6 +130,8 @@ struct RpcError {
 struct RpcBlock {
     #[serde(default)]
     hash: String,
+    #[serde(rename = "previousblockhash", default, skip_serializing)]
+    previous_hash: Option<String>,
     height: u32,
     time: i64,
     #[serde(rename(deserialize = "tx", serialize = "transactions"), default)]
@@ -688,6 +690,25 @@ fn apply_block(
     if block.height < activation {
         return Ok(());
     }
+    // Blocks are fetched by height, so a reorganization during a sync can hand over a block
+    // from another fork. Refusing it leaves the index on one chain; the next sync rebuilds.
+    if let Some(scanned) = index.scanned_height {
+        if block.height != scanned.saturating_add(1) {
+            return Err(format!(
+                "block {} does not follow indexed height {scanned}",
+                block.height
+            ));
+        }
+        match (&block.previous_hash, &index.scanned_hash) {
+            (Some(parent), Some(indexed)) if parent != indexed => {
+                return Err(format!(
+                    "block {} with parent {parent} does not extend indexed block {indexed}",
+                    block.height
+                ));
+            }
+            _ => {}
+        }
+    }
     let pool_height = block.height - activation;
     let epoch = pool_height / epoch_length;
     let mut anchor = match &index.anchor {
@@ -947,19 +968,54 @@ mod tests {
     #[test]
     fn empty_blocks_still_advance_epoch_boundaries() {
         let mut index = fresh_index(7, 15);
-        let block = |height| RpcBlock {
+        apply_block(&mut index, &empty_block(7), 7, 8).unwrap();
+        let epoch_zero_anchor = index.anchor.clone().unwrap();
+        for height in 8..=15 {
+            apply_block(&mut index, &empty_block(height), 7, 8).unwrap();
+        }
+
+        assert_ne!(index.anchor.unwrap(), epoch_zero_anchor);
+        assert_eq!(index.scanned_height, Some(15));
+    }
+
+    #[test]
+    fn index_refuses_a_block_that_does_not_extend_it() {
+        let mut index = fresh_index(7, 9);
+        apply_block(&mut index, &empty_block(7), 7, 8).unwrap();
+        let indexed = index.clone();
+
+        let error = apply_block(&mut index, &empty_block(9), 7, 8).unwrap_err();
+        assert_eq!(error, "block 9 does not follow indexed height 7");
+
+        let fork = RpcBlock {
+            previous_hash: Some("ff".repeat(32)),
+            ..empty_block(8)
+        };
+        let error = apply_block(&mut index, &fork, 7, 8).unwrap_err();
+        assert_eq!(
+            error,
+            format!(
+                "block 8 with parent {} does not extend indexed block {:064x}",
+                "ff".repeat(32),
+                7
+            )
+        );
+
+        assert_eq!(index.scanned_height, indexed.scanned_height);
+        assert_eq!(index.scanned_hash, indexed.scanned_hash);
+        assert_eq!(index.anchor, indexed.anchor);
+        apply_block(&mut index, &empty_block(8), 7, 8).unwrap();
+        assert_eq!(index.scanned_height, Some(8));
+    }
+
+    fn empty_block(height: u32) -> RpcBlock {
+        RpcBlock {
             hash: format!("{height:064x}"),
+            previous_hash: height.checked_sub(1).map(|parent| format!("{parent:064x}")),
             height,
             time: 0,
             transactions: vec![],
             value_pools: vec![],
-        };
-
-        apply_block(&mut index, &block(7), 7, 8).unwrap();
-        let epoch_zero_anchor = index.anchor.clone().unwrap();
-        apply_block(&mut index, &block(15), 7, 8).unwrap();
-
-        assert_ne!(index.anchor.unwrap(), epoch_zero_anchor);
-        assert_eq!(index.scanned_height, Some(15));
+        }
     }
 }
